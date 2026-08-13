@@ -1,11 +1,13 @@
 import { SITE_URL } from "@/lib/site";
 import {
+  ORG_ADDRESS,
   ORG_DESCRIPTION,
   ORG_DISCIPLINES,
   ORG_EMAIL,
   ORG_ID,
   ORG_LEGAL_NAME,
   ORG_NAME,
+  ORG_PHONE_E164,
   ORG_PROFILES,
   WEBSITE_ID,
 } from "@/lib/org";
@@ -50,15 +52,50 @@ function logo(): JsonLdNode {
   };
 }
 
+const ADDRESS_ID = `${SITE_URL}/#address`;
+
+/**
+ * The postal address, hoisted for the same reason as the logo: both the
+ * organization and the ContactPage reference it by `@id`, and a reference only
+ * resolves to a node the graph actually contains.
+ */
+function postalAddress(): JsonLdNode {
+  return {
+    "@type": "PostalAddress",
+    "@id": ADDRESS_ID,
+    streetAddress: ORG_ADDRESS.street,
+    addressLocality: ORG_ADDRESS.locality,
+    addressRegion: ORG_ADDRESS.region,
+    postalCode: ORG_ADDRESS.postalCode,
+    addressCountry: ORG_ADDRESS.country,
+  };
+}
+
+/**
+ * One node carries all three identities.
+ *
+ * `LocalBusiness` is a subtype of `Organization`, and `ProfessionalService` is
+ * a subtype of `LocalBusiness` — declaring them as an array on a single `@id`
+ * is what tells a crawler this is one business, not three. Splitting them into
+ * separate nodes is the common mistake: it produces competing entities for the
+ * same company and dilutes both.
+ *
+ * `geo` is deliberately absent. `GeoCoordinates` must be the real latitude and
+ * longitude of the premises; approximating them from the city centre puts a
+ * map pin on the wrong building, and a wrong pin is worse than no pin. Add
+ * them here once they are read off the actual Google Business Profile.
+ */
 function organization(): JsonLdNode {
   const node: JsonLdNode = {
-    "@type": ["Organization", "ProfessionalService"],
+    "@type": ["Organization", "LocalBusiness", "ProfessionalService"],
     "@id": ORG_ID,
     name: ORG_NAME,
     legalName: ORG_LEGAL_NAME,
     url: abs("/"),
     description: ORG_DESCRIPTION,
     email: ORG_EMAIL,
+    telephone: ORG_PHONE_E164,
+    address: { "@id": ADDRESS_ID },
     logo: { "@id": LOGO_ID },
     image: { "@id": LOGO_ID },
     knowsAbout: [
@@ -71,6 +108,7 @@ function organization(): JsonLdNode {
       "@type": "ContactPoint",
       contactType: "sales",
       email: ORG_EMAIL,
+      telephone: ORG_PHONE_E164,
       url: abs("/contact"),
       availableLanguage: "English",
     },
@@ -222,6 +260,7 @@ export function pageSchema({
     "@context": "https://schema.org",
     "@graph": [
       logo(),
+      postalAddress(),
       organization(),
       website(),
       webPage,

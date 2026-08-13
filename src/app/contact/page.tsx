@@ -9,7 +9,13 @@ import { JsonLd } from "@/components/JsonLd";
 import { FaqSection } from "@/components/seo/FaqSection";
 import { pageSchema } from "@/lib/schema";
 import { CONTACT_FAQS } from "@/lib/faq";
-import { ORG_EMAIL, ORG_NAME } from "@/lib/org";
+import {
+  ORG_ADDRESS_LINES,
+  ORG_EMAIL,
+  ORG_NAME,
+  ORG_PHONE_DISPLAY,
+  ORG_PHONE_E164,
+} from "@/lib/org";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -244,6 +250,50 @@ export default async function ContactPage({ searchParams }: PageProps<"/contact"
                     </span>
                   </a>
                 </div>
+
+                {/* ── NAP ─────────────────────────────────────────────
+                    Name, address and phone rendered from the same
+                    constants as the LocalBusiness structured data. Local
+                    search cross-checks the two, and an address that
+                    exists only in the markup reads as a mismatch. */}
+                <address className="mt-10 not-italic grid sm:grid-cols-2 gap-6 max-w-xl">
+                  <div className="flex gap-4">
+                    <span
+                      aria-hidden="true"
+                      className="shrink-0 w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400"
+                    >
+                      <Icon name="location-dot" />
+                    </span>
+                    <div>
+                      <p className="font-semibold mb-1 text-sm">Office</p>
+                      <p className="text-sm text-gray-500 leading-relaxed">
+                        {ORG_ADDRESS_LINES.map((line) => (
+                          <span key={line} className="block">
+                            {line}
+                          </span>
+                        ))}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4">
+                    <span
+                      aria-hidden="true"
+                      className="shrink-0 w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400"
+                    >
+                      <Icon name="headset" />
+                    </span>
+                    <div>
+                      <p className="font-semibold mb-1 text-sm">Phone</p>
+                      <a
+                        href={`tel:${ORG_PHONE_E164}`}
+                        className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+                      >
+                        {ORG_PHONE_DISPLAY}
+                      </a>
+                    </div>
+                  </div>
+                </address>
 
                 <p className="text-xs text-gray-600 mt-8">
                   {intent === "assessment" ? (

@@ -14,6 +14,41 @@ export const ORG_LEGAL_NAME = "SoftwarePros.org";
 export const ORG_EMAIL = "hello@softwarepros.org";
 
 /**
+ * Name, address, phone — the "NAP" triple local search ranks on.
+ *
+ * These three must appear on the site *identically* to how they appear in the
+ * `LocalBusiness` structured data and in any external directory listing
+ * (Google Business Profile, Apple Business Connect, Bing Places). Local search
+ * treats a mismatched suite number or a spelled-out "Street" as a different
+ * business, which splits the entity instead of strengthening it. So the page
+ * and the schema both render from this one object.
+ */
+export const ORG_ADDRESS = {
+  street: "222 E. Van Buren St.",
+  locality: "Harlingen",
+  /** Two-letter code — schema.org `addressRegion` expects the abbreviation. */
+  region: "TX",
+  postalCode: "78550-9106",
+  /** ISO 3166-1 alpha-2, per schema.org `addressCountry`. */
+  country: "US",
+} as const;
+
+/** How the address reads in prose and on the contact page. */
+export const ORG_ADDRESS_LINES = [
+  ORG_ADDRESS.street,
+  `${ORG_ADDRESS.locality}, ${ORG_ADDRESS.region} ${ORG_ADDRESS.postalCode}`,
+] as const;
+
+/** Display form, matching how the number is written on the site. */
+export const ORG_PHONE_DISPLAY = "956.392.1440";
+
+/**
+ * E.164. Structured data and `tel:` links both want the unpunctuated
+ * international form; only humans get the dotted version above.
+ */
+export const ORG_PHONE_E164 = "+19563921440";
+
+/**
  * Where security researchers report vulnerabilities. Published in
  * `/.well-known/security.txt` and on `/legal/security`, so it must be a
  * monitored inbox — an unread address here is worse than none, because it

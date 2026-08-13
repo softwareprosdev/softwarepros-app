@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { Icon } from "@/components/Icon";
 import { NewsletterForm } from "@/components/NewsletterForm";
-import { ORG_PROFILES } from "@/lib/org";
+import {
+  ORG_ADDRESS_LINES,
+  ORG_EMAIL,
+  ORG_PHONE_DISPLAY,
+  ORG_PHONE_E164,
+  ORG_PROFILES,
+} from "@/lib/org";
 import { routesInGroup } from "@/lib/routes";
 
 /**
@@ -64,6 +70,28 @@ export function SiteFooter() {
               Engineering intelligent technology systems for organizations
               replacing complexity with automation, security, and scale.
             </p>
+
+            {/* NAP on every page, from the same constants as the
+                LocalBusiness structured data — see `lib/org.ts`. */}
+            <address className="not-italic mt-6 text-sm text-gray-500 space-y-1">
+              {ORG_ADDRESS_LINES.map((line) => (
+                <span key={line} className="block">
+                  {line}
+                </span>
+              ))}
+              <a
+                href={`tel:${ORG_PHONE_E164}`}
+                className="block hover:text-gray-300 transition-colors pt-2"
+              >
+                {ORG_PHONE_DISPLAY}
+              </a>
+              <a
+                href={`mailto:${ORG_EMAIL}`}
+                className="block hover:text-gray-300 transition-colors"
+              >
+                {ORG_EMAIL}
+              </a>
+            </address>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-10 lg:gap-12">

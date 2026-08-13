@@ -1,11 +1,14 @@
 import { SITE_URL } from "@/lib/site";
 import {
+  ORG_ADDRESS,
+  ORG_ADDRESS_LINES,
   ORG_DESCRIPTION,
   ORG_DISCIPLINES,
   ORG_EMAIL,
   ORG_ID,
   ORG_LEGAL_NAME,
   ORG_NAME,
+  ORG_PHONE_DISPLAY,
   WEBSITE_ID,
 } from "@/lib/org";
 import { PUBLIC_ROUTES } from "@/lib/routes";
@@ -34,7 +37,9 @@ Website: ${SITE_URL}
 Entity id: ${ORG_ID}
 Website id: ${WEBSITE_ID}
 Contact: ${ORG_EMAIL}
-Type: Organization, ProfessionalService
+Phone: ${ORG_PHONE_DISPLAY}
+Address: ${ORG_ADDRESS_LINES.join(", ")}, ${ORG_ADDRESS.country}
+Type: Organization, LocalBusiness, ProfessionalService
 Area served: United States
 
 ## Description

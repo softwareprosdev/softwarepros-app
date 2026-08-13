@@ -178,6 +178,15 @@ export const CAREERS_FAQS: FaqEntry[] = [
 
 export const CONTACT_FAQS: FaqEntry[] = [
   {
+    // Phrased as a "where / what number" question because that is the shape
+    // of a local search query, and the answer repeats the NAP verbatim so a
+    // voice or AI answer quotes the same address the LocalBusiness node
+    // declares. Keep this in sync with ORG_ADDRESS in `lib/org.ts`.
+    question: "Where is SoftwarePros located, and what is the phone number?",
+    answer:
+      "SoftwarePros is at 222 E. Van Buren St., Harlingen, TX 78550-9106, and the phone number is 956.392.1440. The team works with clients across the United States, so an engagement does not require being in the Rio Grande Valley — but the office is a real address and the phone reaches a person.",
+  },
+  {
     question: "How do I request a security assessment?",
     answer:
       "Submit the contact form with the assessment intent, or email hello@softwarepros.org describing the application or environment you want examined and any deadline you are working against. The reply comes from an engineer, and the first conversation is about scope rather than a sales pitch.",

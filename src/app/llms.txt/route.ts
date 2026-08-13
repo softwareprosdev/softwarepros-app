@@ -1,9 +1,11 @@
 import { SITE_URL } from "@/lib/site";
 import {
+  ORG_ADDRESS_LINES,
   ORG_DESCRIPTION,
   ORG_EMAIL,
   ORG_LEGAL_NAME,
   ORG_NAME,
+  ORG_PHONE_DISPLAY,
 } from "@/lib/org";
 import { PUBLIC_ROUTES, routesInGroup } from "@/lib/routes";
 import { INDUSTRIES, SERVICE_CATEGORIES, SERVICES } from "@/lib/content";
@@ -76,6 +78,8 @@ ${routesInGroup("legal")
 ## Contact
 
 - Email: ${ORG_EMAIL}
+- Phone: ${ORG_PHONE_DISPLAY}
+- Office: ${ORG_ADDRESS_LINES.join(", ")}
 - Contact form: ${SITE_URL}/contact
 - Security assessment requests: ${SITE_URL}/contact?intent=assessment
 
