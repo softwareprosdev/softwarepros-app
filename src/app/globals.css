@@ -1,0 +1,538 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0ea5e9;
+  --color-ink: #050508;
+  --color-surface: #0c0d14;
+  --color-surface-elevated: #141624;
+  --color-surface-deep: #07080e;
+  --color-panel: #080910;
+  --color-card: #0f1022;
+  --color-hairline: #1e2238;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  --radius-hex: 1.2rem;
+
+  --animate-pulse-ring: pulseRing 2s ease-in-out infinite;
+  --animate-fade-in: fadeIn 0.6s ease-out forwards;
+  --animate-fade-up: fadeUp 0.5s ease-out forwards;
+  --animate-marquee: marquee 30s linear infinite;
+  --animate-scanline: scanline 3s linear infinite;
+  --animate-ping-out: pingOut 2s ease-out infinite;
+  --animate-pulse-soft: pulseSoft 2s ease-out infinite;
+  --animate-blink: blink 1s step-end infinite;
+  --animate-slide-up: slideUp 0.5s ease-out forwards;
+
+  @keyframes pulseRing {
+    0%,
+    100% {
+      transform: scale(1);
+      opacity: 0.6;
+    }
+    50% {
+      transform: scale(1.15);
+      opacity: 0.2;
+    }
+  }
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes fadeUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  @keyframes scanline {
+    0% {
+      top: 0%;
+    }
+    100% {
+      top: 100%;
+    }
+  }
+  @keyframes pingOut {
+    0% {
+      transform: scale(1);
+      opacity: 0.6;
+    }
+    100% {
+      transform: scale(2.5);
+      opacity: 0;
+    }
+  }
+  @keyframes pulseSoft {
+    0%,
+    100% {
+      transform: scale(1);
+      opacity: 0.15;
+    }
+    50% {
+      transform: scale(1.4);
+      opacity: 0;
+    }
+  }
+  @keyframes blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0;
+    }
+  }
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* The exported design is dark-only by intent — no light palette to swap to. */
+html,
+body {
+  background-color: var(--color-ink);
+  color: #ffffff;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ── Shared surface treatments ─────────────────────────────────────── */
+
+.glass-card {
+  background: rgba(20, 22, 36, 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass {
+  background: rgba(14, 22, 36, 0.6);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.glass-blue {
+  background: rgba(14, 165, 233, 0.07);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(14, 165, 233, 0.18);
+}
+
+.glass-dark {
+  background: rgba(5, 5, 8, 0.85);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.glass-red {
+  background: rgba(239, 68, 68, 0.05);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+/* ── Navigation ────────────────────────────────────────────────────── */
+
+.nav-link::after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+  transform-origin: right;
+}
+
+.nav-link:hover::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+/* ── Service cards (accent driven by --accent CSS vars) ────────────── */
+
+.service-card {
+  background: var(--color-card);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.35s;
+  cursor: pointer;
+}
+
+.service-card:hover {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.06);
+  transform: translateY(-2px);
+}
+
+.service-card:hover .service-arrow {
+  opacity: 1;
+  transform: translate(2px, -2px);
+}
+
+.service-arrow {
+  opacity: 0;
+  transition: all 0.3s;
+}
+
+/* ── AI badges & chat bubbles ──────────────────────────────────────── */
+
+.ai-badge {
+  background: rgba(14, 165, 233, 0.1);
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  color: #38bdf8;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.msg-ai {
+  background: rgba(14, 165, 233, 0.08);
+  border: 1px solid rgba(14, 165, 233, 0.15);
+  border-radius: 0 16px 16px 16px;
+}
+
+.msg-user {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px 0 16px 16px;
+}
+
+.input-area {
+  background: rgba(14, 22, 36, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.input-area:focus-within {
+  border-color: rgba(14, 165, 233, 0.4);
+}
+
+.sidebar-tab.active {
+  color: #0ea5e9;
+  border-right: 2px solid #0ea5e9;
+  background: rgba(14, 165, 233, 0.06);
+}
+
+/* ── Project summary ───────────────────────────────────────────────── */
+
+.req-category {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  margin-bottom: 8px;
+  margin-top: 16px;
+}
+
+.req-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.phase-bar {
+  height: 6px;
+  border-radius: 6px;
+  background: linear-gradient(to right, #2563eb, #4f46e5);
+}
+
+/* ── Cybersecurity ─────────────────────────────────────────────────── */
+
+.soc-grid {
+  display: grid;
+  grid-template-columns: repeat(1, 1fr);
+  gap: 1px;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .soc-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .soc-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.soc-cell {
+  background: var(--color-surface-deep);
+  padding: 28px;
+  transition: background 0.3s;
+}
+
+.soc-cell:hover {
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.scan-beam {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(239, 68, 68, 0.6),
+    transparent
+  );
+  animation: var(--animate-scanline);
+  pointer-events: none;
+}
+
+/* Badge contrast is deliberate — every variant clears WCAG AA on #07080e. */
+.threat-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.badge-red {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+
+.badge-orange {
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.3);
+  color: #fdba74;
+}
+
+.badge-yellow {
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  color: #fde047;
+}
+
+.badge-purple {
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: #c4b5fd;
+}
+
+.surface {
+  background: var(--color-surface-deep);
+}
+
+/* Sticky on-page table of contents (cybersecurity page). Named `toc-link`
+   rather than `nav-link` so it doesn't collide with the site nav underline. */
+.toc-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #94a3b8;
+  text-decoration: none;
+  transition: all 0.2s;
+  border-left: 2px solid transparent;
+}
+
+.toc-link:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.04);
+  border-left-color: rgba(239, 68, 68, 0.4);
+}
+
+.toc-link.active {
+  color: #fca5a5;
+  border-left-color: #f87171;
+  background: rgba(239, 68, 68, 0.07);
+}
+
+.testimonial-card {
+  background: #0a0c14;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 20px;
+  padding: 32px;
+  transition: border-color 0.3s;
+}
+
+.testimonial-card:hover {
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.case-card {
+  background: var(--color-surface-deep);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  overflow: hidden;
+  transition: all 0.3s;
+}
+
+.case-card:hover {
+  border-color: rgba(239, 68, 68, 0.3);
+  transform: translateY(-3px);
+}
+
+.compliance-card {
+  background: #0a0c14;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+  transition: all 0.3s;
+}
+
+.compliance-card:hover {
+  border-color: rgba(239, 68, 68, 0.25);
+  transform: translateY(-2px);
+}
+
+.event-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 0 9px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s;
+  width: 100%;
+  text-align: left;
+}
+
+.event-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.event-row:last-child {
+  border-bottom: none;
+}
+
+/* Tabular figures keep live counters from jittering as digits change. */
+.stat-count {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+/* ── Accessibility ─────────────────────────────────────────────────── */
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.skip-link:focus {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  width: auto;
+  height: auto;
+  padding: 10px 20px;
+  background: #f87171;
+  color: #0a0c14;
+  font-weight: 700;
+  border-radius: 8px;
+  z-index: 9999;
+  text-decoration: none;
+}
+
+:focus-visible {
+  outline: 2px solid #f87171;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ── Voice modal ───────────────────────────────────────────────────── */
+
+.wave-bar {
+  width: 4px;
+  border-radius: 4px;
+  background: linear-gradient(to top, #0ea5e9, #06b6d4);
+  transition: height 90ms linear;
+}
+
+.transcript-line {
+  opacity: 0;
+  animation: slideUp 0.4s ease-out forwards;
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+/* ── Print (project summary export) ────────────────────────────────── */
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  html,
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+  .glass,
+  .glass-card,
+  .glass-blue {
+    background: #ffffff !important;
+    border-color: #d4d4d8 !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
