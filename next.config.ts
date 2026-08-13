@@ -22,6 +22,12 @@ const csp = [
   "upgrade-insecure-requests",
 ].join("; ");
 
+// Deployed with Railpack, which builds with `npm run build` and serves with
+// `npm start` (`next start`). Deliberately NOT `output: "standalone"` — Next
+// warns that "next start does not work with output: standalone", so the two
+// are mutually exclusive. Standalone only pays off behind a hand-written
+// Dockerfile that runs `node .next/standalone/server.js`; if this ever moves
+// to one, add it back there and change the start command in the same commit.
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
