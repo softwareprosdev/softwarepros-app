@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { requestMicrophone } from "@/lib/microphone";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
 
@@ -22,6 +23,9 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
     Array.from({ length: BAR_COUNT }, () => 8),
   );
   const [error, setError] = useState<string | null>(null);
+  // Set when the browser will not prompt again on its own, so the UI can say
+  // where the switch is instead of offering a retry that silently re-fails.
+  const [needsSettings, setNeedsSettings] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -70,8 +74,16 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
     setSupported(true);
 
     // Live mic level drives the waveform, so the bars reflect real speech.
+    const mic = await requestMicrophone();
+    if (!mic.ok) {
+      setError(mic.message);
+      setNeedsSettings(mic.needsBrowserSettings);
+      return;
+    }
+    setNeedsSettings(false);
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = mic.stream;
       streamRef.current = stream;
       const ctx = new AudioContext();
       audioCtxRef.current = ctx;
@@ -92,10 +104,11 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
       };
       rafRef.current = requestAnimationFrame(tick);
     } catch {
+      // The permission was granted — this is the Web Audio graph failing, so
+      // the waveform is lost but transcription can still proceed.
       setError(
-        "Microphone access was blocked. You can still type your project below.",
+        "Couldn't read the microphone level, so the waveform is disabled. Dictation should still work.",
       );
-      return;
     }
 
     const recognition = new Recognition();
@@ -264,8 +277,27 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {error && (
-          <div className="mb-6 rounded-xl border border-amber-500/20 bg-amber-950/40 px-4 py-3 text-xs text-amber-300">
-            {error}
+          <div
+            role="alert"
+            className="mb-6 rounded-xl border border-amber-500/20 bg-amber-950/40 px-4 py-3 text-xs text-amber-300 flex flex-wrap items-center gap-3"
+          >
+            <Icon name="triangle-exclamation" className="shrink-0" />
+            <span className="flex-1 min-w-48 leading-relaxed">{error}</span>
+
+            {/* A denial used to be a dead end — the modal said "blocked" and
+                offered nothing. Retry is still useful after the visitor flips
+                the switch in site settings, since the browser itself will not
+                re-prompt. */}
+            {!listening && (
+              <button
+                type="button"
+                onClick={() => void start()}
+                className="shrink-0 px-4 py-2 rounded-full border border-amber-400/40 text-amber-200 hover:bg-amber-400/10 transition-colors font-semibold"
+              >
+                <Icon name="rotate-right" className="mr-1.5" />
+                {needsSettings ? "I've allowed it — retry" : "Try again"}
+              </button>
+            )}
           </div>
         )}
 

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
+import { requestMicrophone } from "@/lib/microphone";
 import type { AttachmentSummary, InputMode } from "@/components/discovery/types";
 
 function formatBytes(bytes: number) {
@@ -63,11 +64,13 @@ export function Composer({
     }
   }
 
-  function toggleDictation() {
+  async function toggleDictation() {
     if (dictating) {
       recognitionRef.current?.stop();
       return;
     }
+    onError(null);
+
     const Recognition =
       window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!Recognition) {
@@ -76,6 +79,19 @@ export function Composer({
       );
       return;
     }
+
+    // Ask for the microphone explicitly before starting recognition. Chrome
+    // prompts on its own, but when the answer is no it fails through
+    // `onerror` with nothing shown — the button just stopped working. Asking
+    // here means a denial produces a message that says why and what to do.
+    const mic = await requestMicrophone();
+    if (!mic.ok) {
+      onError(mic.message);
+      return;
+    }
+    // Recognition opens its own capture; this handle was only for permission.
+    mic.stream.getTracks().forEach((track) => track.stop());
+
     const recognition = new Recognition();
     recognition.continuous = true;
     recognition.interimResults = false;
@@ -88,7 +104,18 @@ export function Composer({
         }
       }
     };
-    recognition.onerror = () => setDictating(false);
+    recognition.onerror = (event) => {
+      setDictating(false);
+      // "no-speech" and "aborted" are normal ends to a dictation turn, not
+      // failures worth interrupting the visitor over.
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        onError(
+          "Microphone access is blocked for this site. Click the lock icon in your browser's address bar, allow the microphone, then try again.",
+        );
+      } else if (event.error !== "no-speech" && event.error !== "aborted") {
+        onError(`Dictation stopped: ${event.error}. Type your message instead.`);
+      }
+    };
     recognition.onend = () => setDictating(false);
     recognition.start();
     recognitionRef.current = recognition;
@@ -153,7 +180,7 @@ export function Composer({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={toggleDictation}
+              onClick={() => void toggleDictation()}
               aria-pressed={dictating}
               title="Voice input"
               className={`w-9 h-9 rounded-full border flex items-center justify-center transition-all ${

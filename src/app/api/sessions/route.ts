@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { publicId } from "@/lib/ids";
 import { ensureOwnerToken, readOwnerToken } from "@/lib/session-owner";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { logDbFailure } from "@/lib/db-errors";
 
 const CreateSession = z.object({
   message: z.string().trim().max(20_000).optional(),
@@ -34,19 +35,34 @@ export async function POST(request: Request) {
   const message = parsed.data.message?.trim();
   const ownerToken = await ensureOwnerToken();
 
-  const session = await prisma.discoverySession.create({
-    data: {
-      publicId: publicId(),
-      ownerToken,
-      title: message ? message.slice(0, 60) : "New Discovery",
-      messages: message
-        ? { create: [{ role: "USER", content: message }] }
-        : undefined,
-    },
-    select: { publicId: true },
-  });
+  try {
+    const session = await prisma.discoverySession.create({
+      data: {
+        publicId: publicId(),
+        ownerToken,
+        title: message ? message.slice(0, 60) : "New Discovery",
+        messages: message
+          ? { create: [{ role: "USER", content: message }] }
+          : undefined,
+      },
+      select: { publicId: true },
+    });
 
-  return NextResponse.json({ publicId: session.publicId }, { status: 201 });
+    return NextResponse.json({ publicId: session.publicId }, { status: 201 });
+  } catch (error) {
+    // Previously this threw straight through to a bare 500, so the client had
+    // nothing to distinguish "the database is down" from "you are offline"
+    // and the server logged an empty Prisma error. Both ends now say which.
+    const failure = logDbFailure("createDiscoverySession", error);
+    return NextResponse.json(
+      {
+        error:
+          "The discovery service is temporarily unavailable. This is on our side, not yours.",
+        code: failure.code,
+      },
+      { status: 503 },
+    );
+  }
 }
 
 /**
@@ -57,7 +73,19 @@ export async function GET() {
   const ownerToken = await readOwnerToken();
   if (!ownerToken) return NextResponse.json({ sessions: [] });
 
-  const sessions = await prisma.discoverySession.findMany({
+  try {
+    return NextResponse.json({ sessions: await recentSessions(ownerToken) });
+  } catch (error) {
+    // The sidebar's session history is a convenience, not the feature. If the
+    // database is unreachable, an empty list degrades gracefully; failing the
+    // request would take the whole workspace down with it.
+    logDbFailure("listRecentSessions", error);
+    return NextResponse.json({ sessions: [] });
+  }
+}
+
+function recentSessions(ownerToken: string) {
+  return prisma.discoverySession.findMany({
     where: { ownerToken },
     orderBy: { updatedAt: "desc" },
     take: 12,
@@ -68,5 +96,4 @@ export async function GET() {
       updatedAt: true,
     },
   });
-  return NextResponse.json({ sessions });
 }
