@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestMicrophone } from "@/lib/microphone";
+import { meterFromStream, type LevelMeter } from "@/lib/audio-level";
+import { VoiceOrb } from "@/components/voice/VoiceOrb";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
-
-const BAR_COUNT = 40;
 
 /**
  * The "AI Listening" overlay. Speech recognition runs in the browser where it's
@@ -19,9 +19,6 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
   const [finalLines, setFinalLines] = useState<string[]>([]);
   const [interim, setInterim] = useState("");
   const [elapsed, setElapsed] = useState(0);
-  const [levels, setLevels] = useState<number[]>(() =>
-    Array.from({ length: BAR_COUNT }, () => 8),
-  );
   const [error, setError] = useState<string | null>(null);
   // Set when the browser will not prompt again on its own, so the UI can say
   // where the switch is instead of offering a retry that silently re-fails.
@@ -29,9 +26,13 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
   const [submitting, setSubmitting] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  const meterRef = useRef<LevelMeter | null>(null);
+  const levelRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
+
+  /** Pulled by the orb each frame; keeps amplitude out of React state. */
+  const readLevel = useCallback(() => levelRef.current, []);
 
   const stopEverything = useCallback(() => {
     recognitionRef.current?.stop();
@@ -40,8 +41,11 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
     rafRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    void audioCtxRef.current?.close();
-    audioCtxRef.current = null;
+    // The AudioContext is shared page-wide and intentionally not closed here;
+    // see lib/audio-level.ts.
+    meterRef.current?.dispose();
+    meterRef.current = null;
+    levelRef.current = 0;
     setListening(false);
   }, []);
 
@@ -85,21 +89,13 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
     try {
       const stream = mic.stream;
       streamRef.current = stream;
-      const ctx = new AudioContext();
-      audioCtxRef.current = ctx;
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 128;
-      source.connect(analyser);
-      const data = new Uint8Array(analyser.frequencyBinCount);
+      meterRef.current = meterFromStream(stream);
 
+      // Amplitude lands in a ref, not state. The previous version called
+      // setLevels once per frame, re-rendering the whole modal 60 times a
+      // second to move a row of bars.
       const tick = () => {
-        analyser.getByteFrequencyData(data);
-        const next = Array.from({ length: BAR_COUNT }, (_, i) => {
-          const v = data[Math.floor((i / BAR_COUNT) * data.length)] ?? 0;
-          return 8 + (v / 255) * 64;
-        });
-        setLevels(next);
+        levelRef.current = meterRef.current?.read() ?? 0;
         rafRef.current = requestAnimationFrame(tick);
       };
       rafRef.current = requestAnimationFrame(tick);
@@ -216,32 +212,15 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
             What Are You Trying To Build?
           </p>
 
-          <div className="relative flex items-center justify-center mb-10">
-            <div className="absolute w-64 h-64 rounded-full border border-cyan-500/10 animate-pulse-soft" />
-            <div className="absolute w-48 h-48 rounded-full border border-cyan-500/15 animate-pulse-soft [animation-delay:0.5s]" />
-            <div className="absolute w-36 h-36 rounded-full border border-cyan-500/25" />
-            <div
-              className="w-28 h-28 rounded-full flex items-center justify-center relative z-10"
-              style={{
-                background:
-                  "radial-gradient(circle at 35% 35%, #1e40af, #050508)",
-                boxShadow:
-                  "0 0 60px rgba(14,165,233,0.4), inset 0 0 30px rgba(6,182,212,0.1)",
-              }}
-            >
-              <Icon name="microphone" className="text-4xl text-cyan-300" />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5 h-20" aria-hidden="true">
-            {levels.map((h, i) => (
-              <div
-                key={i}
-                className="wave-bar"
-                style={{ height: `${listening ? h : 6}px` }}
-              />
-            ))}
-          </div>
+          {/* The orb pulls amplitude through a ref rather than receiving it as
+              a prop, so it animates at frame rate without re-rendering this
+              modal 60 times a second. */}
+          <VoiceOrb
+            state={listening ? "listening" : "idle"}
+            readLevel={readLevel}
+            size={300}
+            className="mb-8"
+          />
         </div>
 
         <div className="glass rounded-2xl p-6 mb-6 border-cyan-500/15">

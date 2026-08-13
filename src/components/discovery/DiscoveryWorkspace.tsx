@@ -9,6 +9,7 @@ import { DiscoverySidebar } from "@/components/discovery/DiscoverySidebar";
 import { AnalysisPanel } from "@/components/discovery/AnalysisPanel";
 import { MessageList } from "@/components/discovery/MessageList";
 import { Composer } from "@/components/discovery/Composer";
+import { VoiceConversation } from "@/components/voice/VoiceConversation";
 import type {
   AttachmentSummary,
   ChatMessage,
@@ -262,15 +263,28 @@ export function DiscoveryWorkspace({
             </div>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6">
-            <MessageList
-              messages={messages}
-              suggestions={analysis.suggestions}
-              onSuggestion={(s) => void send(s)}
-              streaming={streaming}
-              showWelcome={!hasConversation}
+          {/* Voice mode replaces the transcript rather than sitting beside it:
+              the orb needs the room, and the turns still land in this same
+              session, so nothing is lost by hiding the list while talking. */}
+          {mode === "voice" ? (
+            <VoiceConversation
+              sessionId={sessionId}
+              onSwitchToChat={() => {
+                setMode("chat");
+                router.refresh();
+              }}
             />
-          </div>
+          ) : (
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6">
+              <MessageList
+                messages={messages}
+                suggestions={analysis.suggestions}
+                onSuggestion={(s) => void send(s)}
+                streaming={streaming}
+                showWelcome={!hasConversation}
+              />
+            </div>
+          )}
 
           {error && (
             <div
@@ -281,15 +295,17 @@ export function DiscoveryWorkspace({
             </div>
           )}
 
-          <Composer
-            sessionId={sessionId}
-            attachments={attachments}
-            onAttachmentsChange={setAttachments}
-            onSend={send}
-            disabled={streaming}
-            mode={mode}
-            onError={setError}
-          />
+          {mode !== "voice" && (
+            <Composer
+              sessionId={sessionId}
+              attachments={attachments}
+              onAttachmentsChange={setAttachments}
+              onSend={send}
+              disabled={streaming}
+              mode={mode}
+              onError={setError}
+            />
+          )}
         </div>
 
         <AnalysisPanel

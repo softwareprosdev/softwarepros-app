@@ -123,19 +123,31 @@ const rgba = (r: number, g: number, b: number, a: number) =>
  */
 export function VoiceOrb({
   state,
-  level,
+  level = 0,
+  readLevel,
   className = "",
   size = 320,
 }: {
   state: OrbState;
-  /** 0..1 audio amplitude, updated ~60fps by the parent. */
-  level: number;
+  /**
+   * 0..1 amplitude, for callers that already re-render at frame rate.
+   * Prefer `readLevel` — passing this from state means a parent re-render
+   * per frame just to move a canvas.
+   */
+  level?: number;
+  /**
+   * Pulled once per frame instead. This is the path the voice conversation
+   * uses: amplitude lives in a ref inside the audio hook, so the orb stays
+   * smooth while React re-renders only when the *state* changes.
+   */
+  readLevel?: () => number;
   className?: string;
   /** px; the canvas is square. Default 320. */
   size?: number;
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const levelRef = useRef(level);
+  const readLevelRef = useRef(readLevel);
   const stateRef = useRef(state);
   // Set by the render effect while reduced motion is on, so a state change can
   // repaint the one static frame without standing a rAF loop back up.
@@ -154,6 +166,10 @@ export function VoiceOrb({
   useEffect(() => {
     levelRef.current = level;
   }, [level]);
+
+  useEffect(() => {
+    readLevelRef.current = readLevel;
+  }, [readLevel]);
 
   useEffect(() => {
     stateRef.current = state;
@@ -364,7 +380,9 @@ export function VoiceOrb({
       last = now;
       t += dt;
 
-      const target = levelRef.current;
+      // Pull from the caller when it offered a reader, so amplitude never has
+      // to travel through React state to reach this loop.
+      const target = readLevelRef.current?.() ?? levelRef.current;
       const prev = smooth;
       // Asymmetric, and expressed as a time constant so the feel does not
       // change with frame rate. Fast attack tracks syllable onsets; the slow
