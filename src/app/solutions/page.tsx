@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import Link from "next/link";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -38,12 +39,12 @@ const RELATED = [
   },
 ];
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/solutions",
   title: "Solutions",
   description:
     "We don't sell software packages. We engineer technology systems built around your business — 20 engineering disciplines spanning AI, software, security, cloud, and business systems.",
-  alternates: { canonical: "/solutions" },
-};
+});
 
 /**
  * Tailwind scans for literal class names, so the per-category divider colours

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import Link from "next/link";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -18,12 +19,12 @@ import {
 } from "@/lib/content";
 import { ORG_DESCRIPTION, ORG_DISCIPLINES, ORG_NAME } from "@/lib/org";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/about",
   title: "About",
   description:
     "How SoftwarePros works: discovery before code, security as a design constraint, domain fluency across 15 industries, and an eight-stage delivery pipeline.",
-  alternates: { canonical: "/about" },
-};
+});
 
 /**
  * How the firm works, one card per operating principle. Each links to the page

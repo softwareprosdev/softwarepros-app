@@ -75,6 +75,34 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control", value: "private, no-store, max-age=0" },
         ],
       },
+      {
+        // Generated images: share cards and favicons. Next appends a
+        // content hash to these URLs, so the bytes behind any given URL never
+        // change and they can be cached hard.
+        //
+        // This matters more than it looks. Facebook, iMessage, WhatsApp and
+        // Slack each re-fetch the card on every fresh share, and the default
+        // `max-age=0, must-revalidate` makes each of those a cold render.
+        // iMessage in particular gives up on a slow image and shows a bare
+        // link instead of the banner.
+        source:
+          "/:path*/:image(opengraph-image|twitter-image|icon|apple-icon)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        source: "/:image(opengraph-image|twitter-image|icon|apple-icon)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
     ];
   },
 };

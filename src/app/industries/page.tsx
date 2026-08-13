@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import Link from "next/link";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -11,12 +12,12 @@ import { pageSchema, abs } from "@/lib/schema";
 import { INDUSTRIES_FAQS } from "@/lib/faq";
 import { INDUSTRIES, PIPELINE } from "@/lib/content";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/industries",
   title: "Industries",
   description:
     "Domain fluency across 15 industries — the regulatory regimes, operational vocabulary, and integration realities that decide whether a system gets used or worked around.",
-  alternates: { canonical: "/industries" },
-};
+});
 
 /**
  * What we actually build for each vertical. Keyed by industry slug so the

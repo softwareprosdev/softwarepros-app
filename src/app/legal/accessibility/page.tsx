@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import { LegalPage, type LegalSection } from "@/components/legal/LegalPage";
 import { ORG_EMAIL } from "@/lib/org";
 
 const DESCRIPTION =
   "The accessibility standard this site is built to, what is already implemented, what is still broken, and how to report a barrier.";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/legal/accessibility",
   title: "Accessibility Statement",
   description: DESCRIPTION,
-  alternates: { canonical: "/legal/accessibility" },
-};
+});
 
 /**
  * Written to be checkable. Every item under "What is in place" is something a

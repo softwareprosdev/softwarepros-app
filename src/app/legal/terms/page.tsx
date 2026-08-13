@@ -1,16 +1,17 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import { JsonLd } from "@/components/JsonLd";
 import { pageSchema } from "@/lib/schema";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/legal/terms",
   title: "Terms of Service",
   description:
     "The terms that apply to using the SoftwarePros website and its AI Discovery Center.",
-  alternates: { canonical: "/legal/terms" },
-};
+});
 
 const SECTIONS = [
   {

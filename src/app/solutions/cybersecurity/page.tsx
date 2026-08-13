@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import Link from "next/link";
 import Image from "next/image";
 import { FloatingAIButton } from "@/components/FloatingAIButton";
@@ -24,12 +25,12 @@ import {
 
 const ASSESSMENT_HREF = "/contact?intent=assessment";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/solutions/cybersecurity",
   title: "Cybersecurity",
   description:
     "We engineer security into every system we build — and we assess, harden, and defend systems that already exist. Offensive capabilities, defensive architecture, and 24/7 security operations.",
-  alternates: { canonical: "/solutions/cybersecurity" },
-};
+});
 
 export default function CybersecurityPage() {
   const schema = pageSchema({

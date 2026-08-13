@@ -33,11 +33,14 @@ export const metadata: Metadata = {
   },
   description:
     "AI. Software Engineering. Cybersecurity. Cloud Infrastructure. We engineer intelligent technology systems for organizations ready to replace complexity with automation, security, and scale.",
-  // Canonicals are set per page, not here: a site-wide default would point
-  // every route at "/" and collapse them in the index.
+  // Canonicals and `og:url` are set per page, not here: a site-wide default
+  // would point every route at "/" and collapse them in the index.
   openGraph: {
     type: "website",
     siteName: "SoftwarePros",
+    // Facebook and LinkedIn key their share object on `og:locale`; without it
+    // they guess from the crawler's own locale rather than from the content.
+    locale: "en_US",
     title: "Build Software That Doesn't Break | SoftwarePros",
     description:
       "AI-first software engineering, cybersecurity, and cloud infrastructure.",
@@ -48,6 +51,10 @@ export const metadata: Metadata = {
     description:
       "AI-first software engineering, cybersecurity, and cloud infrastructure.",
   },
+  // iOS uses this for the home-screen title when a visitor adds the site;
+  // without it Safari falls back to the full <title>, which truncates badly.
+  appleWebApp: { title: "SoftwarePros", capable: true },
+  formatDetection: { telephone: true, address: true },
 };
 
 export const viewport: Viewport = {

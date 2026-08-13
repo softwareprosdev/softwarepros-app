@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import { LegalPage, type LegalSection } from "@/components/legal/LegalPage";
 import { COOKIE_NOTICE_KEY, OWNER_COOKIE_NAME } from "@/lib/cookie-names";
 import { ORG_EMAIL } from "@/lib/org";
@@ -6,11 +7,11 @@ import { ORG_EMAIL } from "@/lib/org";
 const DESCRIPTION =
   "Every cookie and browser-storage key this site sets, what it is for, and how to refuse the optional ones.";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/legal/cookies",
   title: "Cookie Policy",
   description: DESCRIPTION,
-  alternates: { canonical: "/legal/cookies" },
-};
+});
 
 /**
  * This site sets one cookie and one localStorage key, both strictly

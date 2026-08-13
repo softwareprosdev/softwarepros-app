@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import Link from "next/link";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -18,12 +19,12 @@ import {
 } from "@/lib/content";
 import { ORG_EMAIL, ORG_NAME } from "@/lib/org";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/careers",
   title: "Careers",
   description:
     "SoftwarePros does not list open roles on this site. What the engineering bar is, what the work involves day to day, and how to send a speculative application.",
-  alternates: { canonical: "/careers" },
-};
+});
 
 /** Tailwind scans for literal class names, so these are spelled out. */
 const CATEGORY_STYLES: Record<ServiceCategory, string> = {

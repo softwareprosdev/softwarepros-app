@@ -1,16 +1,17 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import { JsonLd } from "@/components/JsonLd";
 import { pageSchema } from "@/lib/schema";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/legal/privacy",
   title: "Privacy Policy",
   description:
     "What SoftwarePros collects when you use this site, why, and how to have it deleted.",
-  alternates: { canonical: "/legal/privacy" },
-};
+});
 
 const SECTIONS = [
   {

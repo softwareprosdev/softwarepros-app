@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import Link from "next/link";
 import Image from "next/image";
 import { SiteNav } from "@/components/SiteNav";
@@ -22,11 +23,16 @@ import {
   TRUST_STATS,
 } from "@/lib/content";
 
-// Title and description come from the root layout defaults; this exists so the
-// homepage declares its own canonical alongside every other public route.
-export const metadata: Metadata = {
-  alternates: { canonical: "/" },
-};
+export const metadata: Metadata = pageMetadata({
+  path: "/",
+  // `title.default` in the root layout already carries the untemplated title;
+  // repeating it here would render "… | SoftwarePros | SoftwarePros".
+  title: "Software Engineering Services",
+  description: ORG_DESCRIPTION,
+  socialTitle: "Build Software That Doesn't Break | SoftwarePros",
+  socialDescription:
+    "AI-first software engineering, cybersecurity, and cloud infrastructure. 20 disciplines, 15 industries.",
+});
 
 const DISCOVERY_PANELS = [
   {

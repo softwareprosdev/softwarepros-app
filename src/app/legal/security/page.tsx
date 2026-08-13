@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import { LegalPage, type LegalSection } from "@/components/legal/LegalPage";
 import { SECURITY_EMAIL } from "@/lib/org";
 
 const DESCRIPTION =
   "The controls protecting data on this site, and the responsible disclosure policy for reporting a vulnerability in it.";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/legal/security",
   title: "Security & Disclosure",
   description: DESCRIPTION,
-  alternates: { canonical: "/legal/security" },
-};
+});
 
 /**
  * This is the `Policy:` URL published in `/.well-known/security.txt`, so the

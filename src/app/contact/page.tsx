@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/metadata";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { FloatingAIButton } from "@/components/FloatingAIButton";
@@ -17,12 +18,12 @@ import {
   ORG_PHONE_E164,
 } from "@/lib/org";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/contact",
   title: "Contact",
   description:
     "Tell us what you're building. Request a security assessment, book a discovery call, or start a project with the SoftwarePros engineering team.",
-  alternates: { canonical: "/contact" },
-};
+});
 
 type Intent = "assessment" | "schedule" | "project";
 
