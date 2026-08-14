@@ -319,7 +319,10 @@ export function useVoiceConversation(sessionId: string) {
     state,
     turns,
     interim,
-    error,
+    // A microphone fault and a voice fault land in the same notice. Both mean
+    // the same thing to the visitor — part of this is not working, the text
+    // still is — and two amber boxes would say it twice.
+    error: error ?? speech.error,
     start,
     stop: teardown,
     readLevel,
