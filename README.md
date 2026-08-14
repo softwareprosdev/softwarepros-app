@@ -245,6 +245,9 @@ that is committed, and it must never contain a real value.
 | `ADMIN_USER` | No | HTTP Basic username for `/admin/*` and `/api/admin/*`. | Defaults to `admin` when unset. |
 | `ADMIN_PASSWORD` | **Yes** if you want an admin area at all | HTTP Basic password, compared timing-safely in `src/lib/auth.ts`. | A long random string. **See the fail-closed note below.** |
 | `NEXT_PUBLIC_SITE_URL` | **Yes** in production | The site's canonical public origin, with no trailing slash. | `https://softwarepros.org`. Falls back to `https://softwarepros.org` if unset — which silently produces wrong URLs on any other host. **See the note below.** |
+| `ELEVENLABS_API_KEY` | No | ElevenLabs text-to-speech, so the AI Architect speaks its replies. Read by `src/lib/ai/voice.ts` and called server-side from `/api/speech`. | Leave empty and the feature stays inert — replies arrive as text, the orb still reacts to the microphone, nothing throws. **See the note below.** |
+| `ELEVENLABS_VOICE_ID` | No | Which voice to speak in. | Defaults to `21m00Tcm4TlvDq8ikWAM` (Rachel, a stock voice) so voice works the moment a key is present. |
+| `ELEVENLABS_MODEL_ID` | No | Which synthesis model to use. | Defaults to `eleven_flash_v2_5` — the low-latency model, chosen because time-to-first-sound matters more than fidelity in conversation. |
 
 ### `ADMIN_PASSWORD` fails closed
 
@@ -275,6 +278,20 @@ origin you will serve on, including the scheme and no trailing slash.
 
 Because it is a `NEXT_PUBLIC_*` variable it is **inlined at build time** — changing it in a
 running container has no effect until the app is rebuilt.
+
+### Voice output is optional and degrades silently
+
+`ELEVENLABS_API_KEY` is the only switch. Leave it empty and the whole feature stays inert:
+the architect still replies in text, the orb still animates from the microphone, and nothing
+throws. `hasElevenLabsCredentials()` in `src/lib/ai/voice.ts` is the single check.
+
+The key never reaches the browser. The client posts text to `/api/speech`, which calls
+ElevenLabs server-side and streams the audio back. That is deliberate — a direct browser call
+would require widening the `connect-src 'self'` CSP in `next.config.ts`, which is a bad trade
+for saving one hop.
+
+Billing is per character, so `/api/speech` caps request length at 2500 characters — a spend
+control as much as a validation rule — and rate limits to 20 requests per minute per client.
 
 ---
 
@@ -314,6 +331,9 @@ Add every variable from the [table above](#environment-variables) in Coolify's
 | `ANTHROPIC_API_KEY` | No | **Yes** |
 | `ADMIN_USER` | No | Yes |
 | `ADMIN_PASSWORD` | No | **Yes** |
+| `ELEVENLABS_API_KEY` | No | Only if you want voice output |
+| `ELEVENLABS_VOICE_ID` | No | Optional |
+| `ELEVENLABS_MODEL_ID` | No | Optional |
 
 > Coolify exposes a "Build Variable" toggle per variable. `NEXT_PUBLIC_SITE_URL` **must** be
 > available at build time — a `NEXT_PUBLIC_*` value set only at runtime will not appear in the
