@@ -1,66 +1,37 @@
 # Coolify → Docker Compose deployment for SoftwarePros.
 #
-# The point of this file: migrations run automatically, and the app is not
-# allowed to start until they succeed. A deploy that ships new schema without
-# applying it is what put `ref: db_not_migrated` in front of visitors, so the
-# ordering here is the fix, not a convenience.
+# One service, on purpose. Migrations run in the container's entrypoint
+# (scripts/docker-entrypoint.sh) before `next start`, so the schema is always
+# applied and there is nothing to remember at deploy time — which is the whole
+# point, after `ref: db_not_migrated` reached visitors.
 #
-# `migrate` and `app` are the same image with different commands. Both declare
-# the same `build` block and image tag, so the second build is a cache hit.
+# An earlier version split this into a one-shot `migrate` service that `app`
+# waited on. It worked, and it still cost a day: Coolify assigns domains per
+# compose service, the bare domain ended up on the container that exits by
+# design, and Traefik answered "no available server" while the app ran fine.
+# One service means one place a domain can point.
 #
-# Written deliberately flat — no YAML anchors, no merge keys, and `environment`
-# as a mapping in every service. Coolify parses this file and rewrites it
-# (injecting build ARGs) before `docker compose` ever sees it, and its rewriter
-# turns a list-form `environment` into integer-keyed YAML, which then fails the
-# build with "non-string key in services.app.environment: 0". Duplication here
-# buys a deploy that works.
+# Written flat — no YAML anchors, `environment` as a mapping. Coolify parses
+# and re-serializes this file before Docker sees it, and list-form environment
+# comes back integer-keyed: "non-string key in services.app.environment: 0".
 #
 # Requires in Coolify:
 #   - Build pack: Docker Compose, compose file: coolify-compose.yaml
-#   - A domain set on the `app` service, port 3000
-#   - "Connect To Predefined Network" enabled, if DATABASE_URL points at a
-#     Postgres resource managed by Coolify — without it this stack sits on its
-#     own network and cannot resolve that hostname.
+#   - The domain on the `app` service, written with the container port:
+#     https://your-domain.com:3000  (the :3000 tells Coolify where to route;
+#     it is not part of the public URL)
 #   - Environment variables: DATABASE_URL, ANTHROPIC_API_KEY, ADMIN_USER,
-#     ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_* trio if voice
-#     is wanted). NEXT_PUBLIC_SITE_URL must also be marked a Build Variable.
+#     ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_* trio for
+#     voice). NEXT_PUBLIC_SITE_URL must also be marked a Build Variable.
 
 networks:
-  # Coolify's Traefik proxy and its managed database resources all live on a
-  # network called `coolify`. A stack that is not on it builds and starts
-  # perfectly and is still unreachable: the proxy answers "no available
-  # server" because the router matched but has no backend it can route to.
-  #
-  # Coolify's "Connect To Predefined Network" toggle does this same join.
-  # Declaring it here as well makes reachability a property of the repo rather
-  # than of a checkbox someone has to remember.
+  # Coolify's Traefik proxy and its managed Postgres both live here. A stack
+  # that is not on this network builds, starts, and is still unreachable.
   coolify:
     external: true
   default: {}
 
 services:
-  # Runs to completion, then exits. Not a long-lived service — an exited
-  # `migrate` container with code 0 is the healthy state.
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
-    image: softwarepros-app:latest
-    command: ["./scripts/db-migrate.sh"]
-    restart: "no"
-    networks:
-      # Coolify's managed Postgres lives on the `coolify` network under an
-      # internal hostname, so migrations cannot resolve it from anywhere else.
-      - default
-      - coolify
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      # How long to tolerate a database that is still coming up.
-      MIGRATE_MAX_ATTEMPTS: ${MIGRATE_MAX_ATTEMPTS:-12}
-      MIGRATE_RETRY_SECONDS: ${MIGRATE_RETRY_SECONDS:-5}
-
   app:
     build:
       context: .
@@ -70,20 +41,10 @@ services:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
     image: softwarepros-app:latest
     restart: unless-stopped
-    depends_on:
-      migrate:
-        # The whole reason this file exists: no migrations, no app.
-        condition: service_completed_successfully
     networks:
       - default
       - coolify
     environment:
-      # Coolify's magic variable. It is not read by the app — its job is to
-      # tell Coolify *which service and which port* the domain routes to, and
-      # to generate the Traefik labels accordingly. Without it Coolify has to
-      # infer the port, and an inferred port 80 produces a router that matches
-      # the domain and then cannot connect to anything: "no available server".
-      SERVICE_FQDN_APP_3000: /
       DATABASE_URL: ${DATABASE_URL}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ADMIN_USER: ${ADMIN_USER:-admin}
@@ -92,6 +53,9 @@ services:
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
       ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-}
+      # How long the entrypoint tolerates a database that is still coming up.
+      MIGRATE_MAX_ATTEMPTS: ${MIGRATE_MAX_ATTEMPTS:-12}
+      MIGRATE_RETRY_SECONDS: ${MIGRATE_RETRY_SECONDS:-5}
     expose:
       - "3000"
     healthcheck:
@@ -107,4 +71,5 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 20s
+      # Generous, because migrations run before the server starts listening.
+      start_period: 90s

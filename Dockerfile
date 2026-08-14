@@ -69,4 +69,8 @@ RUN chmod +x ./scripts/*.sh
 
 USER node
 EXPOSE 3000
+# Migrations run in the entrypoint, so the schema is always applied before the
+# server accepts its first request — no separate service, and nothing to
+# forget on the deploy side.
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 CMD ["npm", "run", "start"]
