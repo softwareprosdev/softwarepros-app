@@ -3,14 +3,83 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { describeRecognitionError, requestMicrophone } from "@/lib/microphone";
 import { meterFromStream, type LevelMeter } from "@/lib/audio-level";
-import { VoiceOrb } from "@/components/voice/VoiceOrb";
+import { VoiceOrb, type OrbState } from "@/components/voice/VoiceOrb";
+import { useSpeech } from "@/lib/use-speech";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
+
+/**
+ * How long a visitor has to go quiet before the architect takes its turn.
+ * Short enough to feel like a conversation, long enough to survive the pause
+ * between two sentences of the same thought.
+ */
+const REPLY_AFTER_SILENCE_MS = 2000;
+
+/**
+ * Said at the end of the answer, before the page changes under them. A
+ * navigation nobody announced reads as a glitch; announced, it reads as the
+ * architect taking them somewhere.
+ */
+const HANDOFF_LINE =
+  "Let's take this into the Discovery Center — I'm opening it for you now.";
+
+/**
+ * Streams the architect's reply for a session, reporting the text as it
+ * arrives and returning it once complete. Same NDJSON contract the typed
+ * composer and the discovery voice loop consume.
+ */
+async function streamReply(
+  publicId: string,
+  onText: (text: string) => void,
+): Promise<string> {
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId: publicId, resume: true }),
+  });
+  if (!res.ok || !res.body) throw new Error("The architect could not respond.");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    // Trailing element is a partial line; keep it for the next chunk.
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as {
+        type: string;
+        text?: string;
+        error?: string;
+      };
+      if (event.type === "text" && event.text) {
+        text += event.text;
+        onText(text);
+      }
+      if (event.type === "error" && event.error) throw new Error(event.error);
+    }
+  }
+
+  return text.trim();
+}
 
 /**
  * The "AI Listening" overlay. Speech recognition runs in the browser where it's
  * available (Chrome/Edge/Safari); everywhere else the modal degrades to a
  * typed-entry prompt rather than pretending to listen.
+ *
+ * It answers the first question here rather than only transcribing it. The
+ * visitor asks, the architect replies out loud, and the modal then hands the
+ * same session to /discovery with both turns already in it — so the page they
+ * land on continues a conversation instead of starting one.
  */
 export function VoiceModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
@@ -24,6 +93,10 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
   // where the switch is instead of offering a retry that silently re-fails.
   const [needsSettings, setNeedsSettings] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  /** The architect's answer, streamed in and spoken before the handoff. */
+  const [reply, setReply] = useState("");
+
+  const speech = useSpeech();
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const meterRef = useRef<LevelMeter | null>(null);
@@ -31,8 +104,15 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  /** Pulled by the orb each frame; keeps amplitude out of React state. */
-  const readLevel = useCallback(() => levelRef.current, []);
+  /**
+   * Pulled by the orb each frame; keeps amplitude out of React state. Reading
+   * the spoken level first means the orb follows the architect while it is
+   * answering and the visitor the rest of the time.
+   */
+  const readLevel = useCallback(() => {
+    const spoken = speech.readLevel();
+    return spoken > 0.01 ? spoken : levelRef.current;
+  }, [speech]);
 
   const stopEverything = useCallback(() => {
     recognitionRef.current?.stop();
@@ -159,29 +239,97 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
 
   const transcript = [...finalLines, interim].join(" ").trim();
 
-  async function handOffToChat() {
-    if (!transcript || submitting) return;
+  // The silence timer fires long after the render that scheduled it, so what
+  // it needs has to be reachable through refs rather than closed over.
+  const transcriptRef = useRef(transcript);
+  const speechRef = useRef(speech);
+  const submittingRef = useRef(false);
+  useEffect(() => {
+    transcriptRef.current = transcript;
+    speechRef.current = speech;
+  });
+
+  /**
+   * Answers the question out loud, then hands the session to /discovery.
+   *
+   * The reply is generated with `resume: true` against the message that
+   * /api/sessions just stored, so the turn is persisted exactly once. By the
+   * time the discovery page mounts it finds a client message *and* an answer,
+   * which is what stops its own opening effect answering the same question a
+   * second time.
+   */
+  const answerAndHandOff = useCallback(async () => {
+    const message = transcriptRef.current;
+    if (!message || submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
+    // Release the microphone before the architect speaks, or recognition
+    // transcribes its voice straight back as the visitor's.
     stopEverything();
+
+    let publicId: string | null = null;
     try {
-      const res = await fetch("/api/sessions", {
+      const created = await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: transcript }),
+        body: JSON.stringify({ message }),
       });
-      if (!res.ok) throw new Error("Could not start the session");
-      const { publicId } = await res.json();
-      onClose();
-      router.push(`/discovery/${publicId}`);
+      if (!created.ok) throw new Error("Could not start the session");
+      publicId = ((await created.json()) as { publicId: string }).publicId;
+
+      const answer = await streamReply(publicId, setReply);
+
+      // Spoken as one utterance rather than two: a second /api/speech round
+      // trip would leave a hole of silence exactly where the visitor is
+      // deciding whether this thing works.
+      const spoken = answer ? `${answer} ${HANDOFF_LINE}` : HANDOFF_LINE;
+      setReply(spoken);
+      await speechRef.current.speak(spoken);
     } catch {
-      setError("Could not start a discovery session. Please try again.");
-      setSubmitting(false);
+      // Losing the answer is recoverable; losing the session is not. If one
+      // exists, go there anyway — the discovery page answers an unanswered
+      // opening message on mount, so the visitor still gets their reply.
+      if (!publicId) {
+        setError("Could not reach the AI Architect. Please try again.");
+        submittingRef.current = false;
+        setSubmitting(false);
+        return;
+      }
     }
-  }
+
+    onClose();
+    router.push(`/discovery/${publicId}`);
+  }, [onClose, router, stopEverything]);
+
+  // The architect takes its turn once the visitor stops talking. Every new
+  // word reschedules this, so a pause for breath mid-thought does not cut
+  // them off. Deliberately not gated on `listening`: Chrome ends recognition
+  // on its own after a silence, and that is precisely when this should fire.
+  useEffect(() => {
+    if (submitting || finalLines.length === 0) return;
+    const id = setTimeout(() => void answerAndHandOff(), REPLY_AFTER_SILENCE_MS);
+    return () => clearTimeout(id);
+  }, [submitting, finalLines, interim, answerAndHandOff]);
 
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(
     elapsed % 60,
   ).padStart(2, "0")}`;
+
+  const orbState: OrbState = speech.speaking
+    ? "speaking"
+    : submitting
+      ? "thinking"
+      : listening
+        ? "listening"
+        : "idle";
+
+  const status = speech.speaking
+    ? "Answering…"
+    : submitting
+      ? "Thinking…"
+      : listening
+        ? "Listening…"
+        : "Paused";
 
   return (
     <div
@@ -195,13 +343,13 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
           <div className="flex items-center gap-3">
             <div
               className={`w-3 h-3 rounded-full ${
-                listening
+                listening || submitting
                   ? "bg-cyan-400 animate-pulse shadow-[0_0_12px_rgba(6,182,212,0.8)]"
                   : "bg-gray-600"
               }`}
             />
             <span className="text-cyan-400 text-sm font-semibold tracking-wider uppercase">
-              {listening ? "Listening…" : "Paused"}
+              {status}
             </span>
           </div>
           <div className="flex items-center gap-4">
@@ -229,7 +377,7 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
               a prop, so it animates at frame rate without re-rendering this
               modal 60 times a second. */}
           <VoiceOrb
-            state={listening ? "listening" : "idle"}
+            state={orbState}
             readLevel={readLevel}
             size={300}
             className="mb-8"
@@ -258,7 +406,13 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
                 <span className="w-0.5 h-5 bg-cyan-400 rounded animate-blink" />
               </div>
             )}
-            {!transcript && (
+            {reply && (
+              <p className="text-cyan-100 text-base leading-relaxed border-l-2 border-cyan-500/40 pl-4">
+                {reply}
+              </p>
+            )}
+
+            {!transcript && !reply && (
               <p className="text-gray-600 italic text-sm">
                 {supported === false
                   ? "Your browser doesn't support in-browser speech recognition. Switch to text and describe your project instead."
@@ -335,9 +489,13 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
 
           <button
             type="button"
-            onClick={listening ? handOffToChat : () => void start()}
+            onClick={
+              listening ? () => void answerAndHandOff() : () => void start()
+            }
             disabled={submitting || (listening && !transcript)}
-            aria-label={listening ? "Stop recording and continue" : "Start recording"}
+            aria-label={
+              listening ? "Stop recording and get an answer" : "Start recording"
+            }
             className="w-16 h-16 rounded-full bg-red-500/20 border-2 border-red-400 flex items-center justify-center hover:bg-red-500/30 transition-all group disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {submitting ? (
@@ -362,9 +520,11 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <p className="text-center text-xs text-gray-600 mt-4">
-          {listening
-            ? "Tap the square to stop and hand off to the AI Architect"
-            : "Tap the microphone to start"}{" "}
+          {submitting
+            ? "The architect is answering, then it will open the Discovery Center"
+            : listening
+              ? "Pause for a moment when you're done — the architect will answer"
+              : "Tap the microphone to start"}{" "}
           • Your session is private
         </p>
       </div>

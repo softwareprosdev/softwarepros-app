@@ -79,6 +79,13 @@ const LOOKS: Record<OrbState, OrbLook> = {
     spin: 1,
   },
   // Warmer sky-blue and a heavier bloom so the orb visibly takes the floor.
+  //
+  // This is the only state where the orb is the thing talking, so it opens up:
+  // the widest resting radius, the strongest amplitude reaction of any state —
+  // the rim genuinely moves with the syllables — and a sweep underneath, which
+  // reads as something running rather than something merely lit. `breath`
+  // stays low on purpose: with `react` this high, an ambient pulse on top
+  // would blur the part that is actually the voice.
   speaking: {
     cr: 32,
     cg: 132,
@@ -86,11 +93,11 @@ const LOOKS: Record<OrbState, OrbLook> = {
     rr: 186,
     rg: 230,
     rb: 253,
-    radius: 0.42,
+    radius: 0.46,
     bloom: 1,
-    react: 0.22,
-    breath: 0.018,
-    spin: 0,
+    react: 0.42,
+    breath: 0.014,
+    spin: 0.55,
   },
 };
 
