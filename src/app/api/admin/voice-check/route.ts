@@ -16,7 +16,34 @@ import { sttModelId } from "@/lib/ai/transcribe";
 
 export const dynamic = "force-dynamic";
 
+// Bounded well under any proxy gateway timeout, so this route always answers.
+export const maxDuration = 30;
+
 const API_BASE = "https://api.elevenlabs.io/v1";
+
+/**
+ * Every upstream call here is bounded. A diagnostic that hangs is worse than
+ * no diagnostic: the proxy returns 504 and the operator learns nothing, at
+ * exactly the moment something upstream is already misbehaving. "Timed out"
+ * is itself an answer.
+ */
+const UPSTREAM_TIMEOUT_MS = 8000;
+
+function timeout(): AbortSignal {
+  return AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
+}
+
+function describeThrow(error: unknown): Check {
+  const timedOut =
+    error instanceof DOMException && error.name === "TimeoutError";
+  return {
+    ok: false,
+    status: null,
+    detail: timedOut
+      ? `No response from ElevenLabs within ${UPSTREAM_TIMEOUT_MS}ms.`
+      : String(error).slice(0, 300),
+  };
+}
 
 type Check = {
   ok: boolean;
@@ -29,6 +56,7 @@ async function checkSubscription(apiKey: string): Promise<Check> {
   try {
     const res = await fetch(`${API_BASE}/user/subscription`, {
       headers: { "xi-api-key": apiKey },
+      signal: timeout(),
     });
     const body = await res.text().catch(() => "");
     if (!res.ok) {
@@ -53,7 +81,7 @@ async function checkSubscription(apiKey: string): Promise<Check> {
         : "Subscription readable, but the character counts were not in the response.",
     };
   } catch (error) {
-    return { ok: false, status: null, detail: String(error).slice(0, 300) };
+    return describeThrow(error);
   }
 }
 
@@ -62,6 +90,7 @@ async function checkVoice(apiKey: string): Promise<Check> {
   try {
     const res = await fetch(`${API_BASE}/voices/${voiceId()}`, {
       headers: { "xi-api-key": apiKey },
+      signal: timeout(),
     });
     const body = await res.text().catch(() => "");
     return {
@@ -72,7 +101,7 @@ async function checkVoice(apiKey: string): Promise<Check> {
         : body.slice(0, 300),
     };
   } catch (error) {
-    return { ok: false, status: null, detail: String(error).slice(0, 300) };
+    return describeThrow(error);
   }
 }
 
@@ -97,7 +126,7 @@ export async function GET() {
 
   // The real thing, end to end: if this succeeds, the browser is the only
   // remaining suspect. Deliberately tiny — this costs characters to run.
-  const spoken = await synthesizeSpeech("Voice check.");
+  const spoken = await synthesizeSpeech("Voice check.", timeout());
   const synthesis: Check = spoken.ok
     ? { ok: true, status: 200, detail: "Synthesis returned audio." }
     : {
