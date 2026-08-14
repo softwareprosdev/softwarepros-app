@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { describeRecognitionError, requestMicrophone } from "@/lib/microphone";
-import { meterFromStream, type LevelMeter } from "@/lib/audio-level";
+import { resumeAudioContext } from "@/lib/audio-level";
 import { VoiceOrb, type OrbState } from "@/components/voice/VoiceOrb";
+import { hasRecording, useDictation } from "@/lib/use-dictation";
 import { useSpeech } from "@/lib/use-speech";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
@@ -72,9 +72,9 @@ async function streamReply(
 }
 
 /**
- * The "AI Listening" overlay. Speech recognition runs in the browser where it's
- * available (Chrome/Edge/Safari); everywhere else the modal degrades to a
- * typed-entry prompt rather than pretending to listen.
+ * The "AI Listening" overlay. Audio is recorded here and transcribed by
+ * ElevenLabs Scribe through /api/transcribe; a browser without MediaRecorder
+ * degrades to a typed-entry prompt rather than pretending to listen.
  *
  * It answers the first question here rather than only transcribing it. The
  * visitor asks, the architect replies out loud, and the modal then hands the
@@ -84,9 +84,7 @@ async function streamReply(
 export function VoiceModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const [supported, setSupported] = useState<boolean | null>(null);
-  const [listening, setListening] = useState(false);
   const [finalLines, setFinalLines] = useState<string[]>([]);
-  const [interim, setInterim] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   // Set when the browser will not prompt again on its own, so the UI can say
@@ -97,12 +95,10 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
   const [reply, setReply] = useState("");
 
   const speech = useSpeech();
-
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const meterRef = useRef<LevelMeter | null>(null);
-  const levelRef = useRef(0);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
+  const dictation = useDictation(
+    useCallback((text: string) => setFinalLines((lines) => [...lines, text]), []),
+  );
+  const listening = dictation.listening;
 
   /**
    * Pulled by the orb each frame; keeps amplitude out of React state. Reading
@@ -111,23 +107,12 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
    */
   const readLevel = useCallback(() => {
     const spoken = speech.readLevel();
-    return spoken > 0.01 ? spoken : levelRef.current;
-  }, [speech]);
+    return spoken > 0.01 ? spoken : dictation.readLevel();
+  }, [speech, dictation]);
 
-  const stopEverything = useCallback(() => {
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    // The AudioContext is shared page-wide and intentionally not closed here;
-    // see lib/audio-level.ts.
-    meterRef.current?.dispose();
-    meterRef.current = null;
-    levelRef.current = 0;
-    setListening(false);
-  }, []);
+  // `dictation.stop` keeps a stable identity, so this one does too — which
+  // matters because the effect that opens the microphone is keyed on `start`.
+  const stopEverything = dictation.stop;
 
   // Escape closes the modal.
   useEffect(() => {
@@ -146,89 +131,29 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
     return () => clearInterval(id);
   }, [listening]);
 
+  const dictationStart = dictation.start;
   const start = useCallback(async () => {
     setError(null);
-    // Retry runs through here too, so release whatever the previous attempt
-    // left holding the device before asking for it again.
-    stopEverything();
-    const Recognition =
-      window.SpeechRecognition ?? window.webkitSpeechRecognition;
 
-    if (!Recognition) {
+    if (!hasRecording()) {
       setSupported(false);
       return;
     }
     setSupported(true);
 
-    // Live mic level drives the waveform, so the bars reflect real speech.
-    const mic = await requestMicrophone();
-    if (!mic.ok) {
-      setError(mic.message);
-      setNeedsSettings(mic.needsBrowserSettings);
+    // The architect answers out loud in this modal, and playback needs the
+    // AudioContext unlocked by a gesture. Opening the modal was that gesture;
+    // waiting until the reply arrives is too late.
+    await resumeAudioContext();
+
+    const started = await dictationStart();
+    if (!started.ok) {
+      setError(started.message);
+      setNeedsSettings(started.needsBrowserSettings);
       return;
     }
     setNeedsSettings(false);
-
-    try {
-      const stream = mic.stream;
-      streamRef.current = stream;
-      meterRef.current = meterFromStream(stream);
-
-      // Amplitude lands in a ref, not state. The previous version called
-      // setLevels once per frame, re-rendering the whole modal 60 times a
-      // second to move a row of bars.
-      const tick = () => {
-        levelRef.current = meterRef.current?.read() ?? 0;
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      rafRef.current = requestAnimationFrame(tick);
-    } catch {
-      // The permission was granted — this is the Web Audio graph failing, so
-      // the waveform is lost but transcription can still proceed.
-      setError(
-        "Couldn't read the microphone level, so the waveform is disabled. Dictation should still work.",
-      );
-    }
-
-    const recognition = new Recognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-
-    recognition.onresult = (event) => {
-      let live = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const text = result[0].transcript;
-        if (result.isFinal) {
-          setFinalLines((lines) => [...lines, text.trim()]);
-        } else {
-          live += text;
-        }
-      }
-      setInterim(live);
-    };
-    recognition.onerror = (event) => {
-      void describeRecognitionError(event.error).then((outcome) => {
-        if (!outcome) return;
-        setError(outcome.message);
-        setNeedsSettings(outcome.needsBrowserSettings);
-      });
-    };
-    recognition.onend = () => setListening(false);
-
-    // `start()` throws InvalidStateError if recognition is already running,
-    // which is reachable from the retry button. Unhandled, it rejected the
-    // promise and left the modal sitting on "Paused" with no explanation.
-    try {
-      recognition.start();
-    } catch {
-      setError("Dictation is already running. Close and reopen to restart it.");
-      return;
-    }
-    recognitionRef.current = recognition;
-    setListening(true);
-  }, [stopEverything]);
+  }, [dictationStart]);
 
   // Deferred a tick: `start` flips state as it opens the mic, and doing that
   // synchronously inside the effect body cascades an extra render.
@@ -237,7 +162,7 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
     return () => clearTimeout(id);
   }, [start]);
 
-  const transcript = [...finalLines, interim].join(" ").trim();
+  const transcript = finalLines.join(" ").trim();
 
   // The silence timer fires long after the render that scheduled it, so what
   // it needs has to be reachable through refs rather than closed over.
@@ -301,15 +226,15 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
     router.push(`/discovery/${publicId}`);
   }, [onClose, router, stopEverything]);
 
-  // The architect takes its turn once the visitor stops talking. Every new
-  // word reschedules this, so a pause for breath mid-thought does not cut
-  // them off. Deliberately not gated on `listening`: Chrome ends recognition
-  // on its own after a silence, and that is precisely when this should fire.
+  // The architect takes its turn once the visitor stops talking. Each new
+  // transcribed sentence reschedules this, so a pause for breath mid-thought
+  // does not cut them off — and it never fires while a clip is still being
+  // transcribed, or the handoff would carry an unfinished question.
   useEffect(() => {
-    if (submitting || finalLines.length === 0) return;
+    if (submitting || dictation.transcribing || finalLines.length === 0) return;
     const id = setTimeout(() => void answerAndHandOff(), REPLY_AFTER_SILENCE_MS);
     return () => clearTimeout(id);
-  }, [submitting, finalLines, interim, answerAndHandOff]);
+  }, [submitting, dictation.transcribing, finalLines, answerAndHandOff]);
 
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(
     elapsed % 60,
@@ -400,9 +325,14 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
                 {line}
               </p>
             ))}
-            {interim && (
+            {/* Scribe transcribes a finished clip, so there are no interim
+                words to show. Saying the sentence is being written is the
+                honest version of the old blinking caret. */}
+            {dictation.transcribing && (
               <div className="flex items-center gap-2">
-                <span className="text-gray-400 text-lg">{interim}</span>
+                <span className="text-gray-500 text-base italic">
+                  Writing that down…
+                </span>
                 <span className="w-0.5 h-5 bg-cyan-400 rounded animate-blink" />
               </div>
             )}
@@ -415,20 +345,24 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
             {!transcript && !reply && (
               <p className="text-gray-600 italic text-sm">
                 {supported === false
-                  ? "Your browser doesn't support in-browser speech recognition. Switch to text and describe your project instead."
+                  ? "This browser can't record audio. Switch to text and describe your project instead."
                   : "Start describing your business and what you're trying to accomplish…"}
               </p>
             )}
           </div>
         </div>
 
-        {error && (
+        {/* The microphone, the transcriber and the voice each fail in their
+            own way; to the visitor they are one thing that stopped working. */}
+        {(error ?? dictation.error ?? speech.error) && (
           <div
             role="alert"
             className="mb-6 rounded-xl border border-amber-500/20 bg-amber-950/40 px-4 py-3 text-xs text-amber-300 flex flex-wrap items-center gap-3"
           >
             <Icon name="triangle-exclamation" className="shrink-0" />
-            <span className="flex-1 min-w-48 leading-relaxed">{error}</span>
+            <span className="flex-1 min-w-48 leading-relaxed">
+              {error ?? dictation.error ?? speech.error}
+            </span>
 
             {/* A denial used to be a dead end — the modal said "blocked" and
                 offered nothing. Retry is still useful after the visitor flips

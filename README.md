@@ -245,9 +245,16 @@ that is committed, and it must never contain a real value.
 | `ADMIN_USER` | No | HTTP Basic username for `/admin/*` and `/api/admin/*`. | Defaults to `admin` when unset. |
 | `ADMIN_PASSWORD` | **Yes** if you want an admin area at all | HTTP Basic password, compared timing-safely in `src/lib/auth.ts`. | A long random string. **See the fail-closed note below.** |
 | `NEXT_PUBLIC_SITE_URL` | **Yes** in production | The site's canonical public origin, with no trailing slash. | `https://softwarepros.org`. Falls back to `https://softwarepros.org` if unset — which silently produces wrong URLs on any other host. **See the note below.** |
-| `ELEVENLABS_API_KEY` | No | ElevenLabs text-to-speech, so the AI Architect speaks its replies. Read by `src/lib/ai/voice.ts` and called server-side from `/api/speech`. | Leave empty and the feature stays inert — replies arrive as text, the orb still reacts to the microphone, nothing throws. **See the note below.** |
+| `ELEVENLABS_API_KEY` | No | Both halves of the voice loop: speech-to-text for dictation (`src/lib/ai/transcribe.ts`, `/api/transcribe`) and text-to-speech for the replies (`src/lib/ai/voice.ts`, `/api/speech`). One key covers both. | Leave empty and both stay inert — the conversation continues by typing, nothing throws. **See the note below.** |
 | `ELEVENLABS_VOICE_ID` | No | Which voice to speak in. | Defaults to `21m00Tcm4TlvDq8ikWAM` (Rachel, a stock voice) so voice works the moment a key is present. |
 | `ELEVENLABS_MODEL_ID` | No | Which synthesis model to use. | Defaults to `eleven_flash_v2_5` — the low-latency model, chosen because time-to-first-sound matters more than fidelity in conversation. |
+| `ELEVENLABS_STT_MODEL_ID` | No | Which transcription model to use. | Defaults to `scribe_v1`. ElevenLabs revises the model line; if `/api/transcribe` starts logging a 422, set the current id here. |
+| `ELEVENLABS_STT_LANGUAGE` | No | Pins the dictation language. | Empty means Scribe detects it. Pin (e.g. `en`) only if you know your visitors speak one — detection can misread a short utterance. |
+
+> **Silent architect?** `GET /api/admin/voice-check` (Basic auth) reports whether a key is
+> present, the character balance left on the account, whether `ELEVENLABS_VOICE_ID` exists on
+> it, and the result of a real synthesis call — then says which of those is the problem. It
+> never returns the key.
 
 ### `ADMIN_PASSWORD` fails closed
 
