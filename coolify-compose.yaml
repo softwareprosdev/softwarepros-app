@@ -25,6 +25,19 @@
 #     ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_* trio if voice
 #     is wanted). NEXT_PUBLIC_SITE_URL must also be marked a Build Variable.
 
+networks:
+  # Coolify's Traefik proxy and its managed database resources all live on a
+  # network called `coolify`. A stack that is not on it builds and starts
+  # perfectly and is still unreachable: the proxy answers "no available
+  # server" because the router matched but has no backend it can route to.
+  #
+  # Coolify's "Connect To Predefined Network" toggle does this same join.
+  # Declaring it here as well makes reachability a property of the repo rather
+  # than of a checkbox someone has to remember.
+  coolify:
+    external: true
+  default: {}
+
 services:
   # Runs to completion, then exits. Not a long-lived service — an exited
   # `migrate` container with code 0 is the healthy state.
@@ -37,6 +50,11 @@ services:
     image: softwarepros-app:latest
     command: ["./scripts/db-migrate.sh"]
     restart: "no"
+    networks:
+      # Coolify's managed Postgres lives on the `coolify` network under an
+      # internal hostname, so migrations cannot resolve it from anywhere else.
+      - default
+      - coolify
     environment:
       DATABASE_URL: ${DATABASE_URL}
       # How long to tolerate a database that is still coming up.
@@ -56,7 +74,16 @@ services:
       migrate:
         # The whole reason this file exists: no migrations, no app.
         condition: service_completed_successfully
+    networks:
+      - default
+      - coolify
     environment:
+      # Coolify's magic variable. It is not read by the app — its job is to
+      # tell Coolify *which service and which port* the domain routes to, and
+      # to generate the Traefik labels accordingly. Without it Coolify has to
+      # infer the port, and an inferred port 80 produces a router that matches
+      # the domain and then cannot connect to anything: "no available server".
+      SERVICE_FQDN_APP_3000: /
       DATABASE_URL: ${DATABASE_URL}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ADMIN_USER: ${ADMIN_USER:-admin}
