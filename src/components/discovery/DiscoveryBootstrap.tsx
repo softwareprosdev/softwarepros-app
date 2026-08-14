@@ -24,11 +24,18 @@ export function DiscoveryBootstrap({
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  // The API already classifies its own failure; this keeps that classification
+  // instead of discarding it, so whoever is on call can tell "Postgres is
+  // down" from "the deploy skipped its migrations" without shelling into the
+  // server. Deliberately a stable code and never a driver message — those
+  // carry connection strings.
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(true);
   const startedRef = useRef(false);
 
   const startSession = useCallback(async () => {
     setError(null);
+    setErrorCode(null);
     setRetrying(true);
     try {
       const res = await fetch("/api/sessions", {
@@ -43,6 +50,7 @@ export function DiscoveryBootstrap({
         // wrong — the old copy told them to check their connection, which
         // sent people to reboot a router over our database being unreachable.
         const body = await res.json().catch(() => ({}));
+        if (typeof body.code === "string") setErrorCode(body.code);
         throw new Error(
           typeof body.error === "string"
             ? body.error
@@ -84,9 +92,19 @@ export function DiscoveryBootstrap({
             <h1 className="text-xl font-bold mb-2">
               The AI Architect is offline
             </h1>
-            <p className="text-sm text-gray-400 mb-6" role="alert">
+            <p className="text-sm text-gray-400 mb-3" role="alert">
               {error}
             </p>
+
+            {/* Meaningless to a visitor, and it reads that way on purpose —
+                but it is the one thing that turns "it's broken" in a client
+                email into a fix, without anyone reading container logs. */}
+            {errorCode && (
+              <p className="text-xs text-gray-700 font-mono mb-6">
+                ref: {errorCode}
+              </p>
+            )}
+            {!errorCode && <div className="mb-6" />}
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center mb-8">
               <button
