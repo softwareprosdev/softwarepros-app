@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { meterFromElement, resumeAudioContext } from "@/lib/audio-level";
+import { speakableText } from "@/lib/speakable";
 
 /**
  * Lazily creates the shared <audio> element and points it at a new clip.
@@ -72,7 +73,9 @@ export function useSpeech() {
 
   const speak = useCallback(
     async (text: string) => {
-      const trimmed = text.trim();
+      // Claude replies in Markdown for the transcript's benefit. Sent as-is,
+      // the synthesizer reads the punctuation and charges for it.
+      const trimmed = speakableText(text);
       if (!trimmed) return;
 
       // Barge-in: a new utterance always cancels the one in flight, so the

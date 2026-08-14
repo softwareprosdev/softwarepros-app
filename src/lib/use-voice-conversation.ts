@@ -13,6 +13,14 @@ export type ConversationTurn = {
 };
 
 /**
+ * The analysis Claude refreshes after each turn — industry, clarity score,
+ * modules, open questions. Structurally identical to the workspace's
+ * `SessionAnalysis`; kept as an index type here so this hook does not reach
+ * into a component's type module.
+ */
+export type AnalysisPatch = Record<string, unknown>;
+
+/**
  * The spoken conversation loop: microphone → Scribe → Claude → ElevenLabs → orb.
  *
  * Claude remains the architect. This drives the existing `/api/chat` stream
@@ -24,10 +32,19 @@ export type ConversationTurn = {
  * Transcription goes through /api/transcribe (ElevenLabs Scribe) rather than
  * the browser's Web Speech API — see use-dictation.ts for why.
  */
-export function useVoiceConversation(sessionId: string) {
+export function useVoiceConversation(
+  sessionId: string,
+  onAnalysis?: (analysis: AnalysisPatch) => void,
+) {
   const [state, setState] = useState<ConversationState>("idle");
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Read inside the stream loop, which outlives the render that started it.
+  const onAnalysisRef = useRef(onAnalysis);
+  useEffect(() => {
+    onAnalysisRef.current = onAnalysis;
+  });
 
   const micLevelRef = useRef(0);
   // Guards against a late transcription restarting a torn-down loop.
@@ -80,9 +97,16 @@ export function useVoiceConversation(sessionId: string) {
             const event = JSON.parse(line) as {
               type: string;
               text?: string;
+              analysis?: AnalysisPatch;
               error?: string;
             };
             if (event.type === "text" && event.text) reply += event.text;
+            // The point of the Live Analysis panel is that it fills in while
+            // the client talks. Dropping these events on the floor is what
+            // left it frozen through an entire spoken conversation.
+            if (event.type === "analysis" && event.analysis) {
+              onAnalysisRef.current?.(event.analysis);
+            }
             if (event.type === "error" && event.error) throw new Error(event.error);
           }
         }

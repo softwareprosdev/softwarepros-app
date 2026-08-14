@@ -273,6 +273,12 @@ export function DiscoveryWorkspace({
                 setMode("chat");
                 router.refresh();
               }}
+              // Spoken turns stream the same `analysis` events as typed ones,
+              // so the panel on the right keeps filling in while the client
+              // talks — which is the whole reason it is on screen.
+              onAnalysis={(patch) =>
+                setAnalysis((prev) => ({ ...prev, ...patch }))
+              }
             />
           ) : (
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6">

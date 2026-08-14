@@ -26,14 +26,16 @@ const STATUS: Record<ConversationState, { label: string; tone: string }> = {
 export function VoiceConversation({
   sessionId,
   onSwitchToChat,
+  onAnalysis,
 }: {
   sessionId: string;
   onSwitchToChat: () => void;
+  /** Feeds the Live Analysis panel while the conversation is spoken. */
+  onAnalysis?: (analysis: Record<string, unknown>) => void;
 }) {
-  const voice = useVoiceConversation(sessionId);
+  const voice = useVoiceConversation(sessionId, onAnalysis);
   const status = STATUS[voice.state];
   const active = voice.state !== "idle";
-  const lastReply = [...voice.turns].reverse().find((t) => t.role === "assistant");
 
   return (
     <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-6 overflow-y-auto">
@@ -47,6 +49,13 @@ export function VoiceConversation({
         {status.label}
       </p>
 
+      {/* The architect's answer is deliberately not printed here.
+          It was dumped under the orb as one unformatted wall — raw `**` and
+          all — which buried the orb, pushed the page into a scroll, and asked
+          the client to read the thing that is being read to them. What they
+          should be watching while it talks is the Live Analysis panel filling
+          in: that is the part they cannot get from listening. Every word is
+          still persisted, and switching to AI Chat shows the full transcript. */}
       <div className="mt-6 max-w-xl w-full text-center min-h-24">
         {voice.interim && (
           <p className="text-lg text-white leading-relaxed">
@@ -55,16 +64,10 @@ export function VoiceConversation({
           </p>
         )}
 
-        {!voice.interim && lastReply && (
-          <p className="text-base text-gray-300 leading-relaxed">
-            {lastReply.text}
-          </p>
-        )}
-
-        {!voice.interim && !lastReply && !voice.error && (
+        {!voice.interim && !voice.error && (
           <p className="text-sm text-gray-600 leading-relaxed">
             {active
-              ? "Describe the business problem you're trying to solve. The architect will ask follow-up questions."
+              ? "Describe the business problem you're trying to solve. The architect will ask follow-up questions, and the panel on the right fills in as it understands more."
               : "Start the conversation and describe your project out loud. Everything you say is captured in this session."}
           </p>
         )}
