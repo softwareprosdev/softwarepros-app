@@ -22,12 +22,14 @@ const csp = [
   "upgrade-insecure-requests",
 ].join("; ");
 
-// Deployed with Railpack, which builds with `npm run build` and serves with
-// `npm start` (`next start`). Deliberately NOT `output: "standalone"` — Next
-// warns that "next start does not work with output: standalone", so the two
-// are mutually exclusive. Standalone only pays off behind a hand-written
-// Dockerfile that runs `node .next/standalone/server.js`; if this ever moves
-// to one, add it back there and change the start command in the same commit.
+// Built with `npm run build` and served with `npm start` (`next start`), both
+// under Nixpacks and in the Dockerfile that coolify-compose.yaml builds.
+// Deliberately NOT `output: "standalone"` — Next warns that "next start does
+// not work with output: standalone", so the two are mutually exclusive.
+// Standalone would shrink the image, but the same image also runs
+// `prisma migrate deploy`, which needs the full node_modules anyway; switching
+// means changing the Dockerfile CMD to `node .next/standalone/server.js` and
+// finding another home for migrations, in the same commit.
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: [

@@ -1,0 +1,75 @@
+# Coolify → Docker Compose deployment for SoftwarePros.
+#
+# The point of this file: migrations run automatically, and the app is not
+# allowed to start until they succeed. A deploy that ships new schema without
+# applying it is what put `ref: db_not_migrated` in front of visitors, so the
+# ordering here is the fix, not a convenience.
+#
+# `migrate` and `app` are the same image with different commands. Both declare
+# the same `build` block and image tag, so the second build is a cache hit.
+#
+# Requires in Coolify:
+#   - Build pack: Docker Compose, compose file: coolify-compose.yaml
+#   - "Connect To Predefined Network" enabled, if DATABASE_URL points at a
+#     Postgres resource managed by Coolify — without it this stack sits on its
+#     own network and cannot resolve that hostname.
+#   - Environment variables: DATABASE_URL, ANTHROPIC_API_KEY, ADMIN_USER,
+#     ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_* trio if voice
+#     is wanted). NEXT_PUBLIC_SITE_URL must also be marked a Build Variable.
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      # Inlined into the client bundle at build time. Runtime is too late.
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+  image: softwarepros-app:latest
+
+services:
+  # Runs to completion, then exits. Not a long-lived service — an exited
+  # `migrate` container with code 0 is the healthy state.
+  migrate:
+    <<: *app
+    command: ["./scripts/db-migrate.sh"]
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      # How long to tolerate a database that is still coming up.
+      MIGRATE_MAX_ATTEMPTS: ${MIGRATE_MAX_ATTEMPTS:-12}
+      MIGRATE_RETRY_SECONDS: ${MIGRATE_RETRY_SECONDS:-5}
+
+  app:
+    <<: *app
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        # The whole reason this file exists: no migrations, no app.
+        condition: service_completed_successfully
+    environment:
+      # Coolify fills this with the FQDN it routes to port 3000.
+      - SERVICE_FQDN_APP_3000
+      - DATABASE_URL=${DATABASE_URL}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-}
+      - ELEVENLABS_MODEL_ID=${ELEVENLABS_MODEL_ID:-}
+    expose:
+      - "3000"
+    healthcheck:
+      # A TCP connect rather than an HTTP probe: the image has no curl, and
+      # this only needs to answer "is the server accepting connections".
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s

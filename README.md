@@ -297,21 +297,32 @@ control as much as a validation rule — and rate limits to 20 requests per minu
 
 ## Deploying to Coolify
 
-There is no `Dockerfile` in this repo, so Coolify's **Nixpacks** build pack is the path of
-least resistance. (If a `Dockerfile` is added later, switch the build pack to Dockerfile and
-skip the build/start command fields.)
+Two supported paths. **Docker Compose** is the recommended one, because it is the only one
+where migrations cannot be forgotten: `coolify-compose.yaml` runs them in a `migrate` service
+and the app is not started until that service exits `0`. **Nixpacks** still works if the app
+is already deployed that way — it just needs the migration step wired in by hand (see
+[Migrations](#4-migrations)).
 
 ### 1. Create the application
 
 1. In Coolify: **Projects → New Resource → Application → Private Repository (with GitHub App
    or deploy key)**. Point it at this repo and pick the branch you deploy from.
-2. **Build pack:** `Nixpacks`
-3. **Install command:** `npm ci`
-4. **Build command:** `npm run build`
-5. **Start command:** `npm start`
-6. **Port:** `3000`
-7. **Domain:** set your public hostname. Coolify provisions and renews TLS via Let's Encrypt —
-   no cert handling needed in the app.
+2. **Build pack:** `Docker Compose`
+3. **Docker Compose location:** `/coolify-compose.yaml`
+4. **Connect To Predefined Network:** on, if `DATABASE_URL` points at a Postgres resource
+   managed by Coolify. Without it the stack gets its own network and cannot resolve that
+   hostname — the app then fails with `ref: db_unreachable`.
+5. **Domain:** set your public hostname on the `app` service (port `3000`). Coolify provisions
+   and renews TLS via Let's Encrypt — no cert handling needed in the app.
+
+<details>
+<summary>Nixpacks instead</summary>
+
+**Build pack:** `Nixpacks` · **Install:** `npm ci` · **Build:** `npm run build` ·
+**Start:** `npm start` · **Port:** `3000`. Then set the pre-deployment command described under
+[Migrations](#4-migrations) — nothing else applies the schema on this path.
+
+</details>
 
 ### 2. Attach a database
 
@@ -344,15 +355,23 @@ Add every variable from the [table above](#environment-variables) in Coolify's
 `postinstall` already runs `prisma generate`, so the Prisma client is built for you — you do
 not need a separate generate step.
 
-Migrations are not automatic. Add this as Coolify's **pre-deployment command** (or append it
-to the build command):
+Applying the schema is `scripts/db-migrate.sh`. It waits for the database to accept
+connections (12 attempts, 5s apart by default — override with `MIGRATE_MAX_ATTEMPTS` and
+`MIGRATE_RETRY_SECONDS`), runs `prisma migrate deploy`, and exits non-zero if it cannot
+finish. It never prints `DATABASE_URL`, because deploy logs are not a secret store.
 
-```bash
-npx prisma migrate deploy
-```
+- **Docker Compose:** already wired. The `migrate` service runs the script, and `app` declares
+  `depends_on: { migrate: { condition: service_completed_successfully } }`. A failed migration
+  therefore keeps the *old* container serving traffic rather than promoting a broken one. The
+  `migrate` container sitting in `Exited (0)` after a deploy is the healthy state.
+- **Nixpacks:** set `./scripts/db-migrate.sh` as the **pre-deployment command**.
 
-Use `migrate deploy`, **never** `migrate dev` — `migrate dev` is interactive, can prompt to
-reset the database, and will happily generate new migration files against production.
+Skipping this is what produces "The AI Architect is offline" with `ref: db_not_migrated`: the
+app is running fine, the database just has no tables for it. `ref: db_unreachable` is the
+neighbouring failure — wrong `DATABASE_URL`, or the predefined network is off.
+
+`migrate deploy`, **never** `migrate dev` — `migrate dev` is interactive, can prompt to reset
+the database, and will happily generate new migration files against production.
 
 ### 5. Post-deploy checklist
 
@@ -386,6 +405,9 @@ softwarepros-app/
 │   │                            # ProjectSummary, Lead, NewsletterSubscriber
 │   └── migrations/              # applied with `prisma migrate deploy` in prod
 ├── prisma.config.ts             # Prisma 7 config — schema path + datasource URL
+├── scripts/db-migrate.sh        # waits for Postgres, applies migrations, fails loudly
+├── Dockerfile                   # one image, two commands: migrate and `next start`
+├── coolify-compose.yaml         # migrate runs to completion before app starts
 ├── next.config.ts               # CSP, security headers, .well-known rewrites, image hosts
 ├── src/
 │   ├── proxy.ts                 # Basic-auth gate, matched on /admin + /api/admin only
@@ -518,8 +540,9 @@ invented claim is not a typo but a policy violation.
 | `npm run db:studio` | `prisma studio` | Browse the database |
 | `postinstall` | `prisma generate` | Runs automatically after every install |
 
-Production migrations use `npx prisma migrate deploy` — there is no npm script for it on
-purpose, so nobody runs `db:migrate` against production by muscle memory.
+Production migrations go through `scripts/db-migrate.sh` (`prisma migrate deploy` with a
+wait-for-database retry), run by the `migrate` service in `coolify-compose.yaml`. There is no
+npm script wrapping it, so nobody runs `db:migrate` against production by muscle memory.
 
 ---
 

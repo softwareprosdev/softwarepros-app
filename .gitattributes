@@ -1,0 +1,8 @@
+# Shell scripts and the Dockerfile run inside Linux containers. A CRLF line
+# ending in a script makes the kernel look for an interpreter named `/bin/sh\r`
+# and fail with a bare "no such file or directory", so pin these to LF no
+# matter what a Windows checkout would otherwise do.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
