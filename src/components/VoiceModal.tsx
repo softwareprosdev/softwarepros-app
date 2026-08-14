@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { requestMicrophone } from "@/lib/microphone";
+import { describeRecognitionError, requestMicrophone } from "@/lib/microphone";
 import { meterFromStream, type LevelMeter } from "@/lib/audio-level";
 import { VoiceOrb } from "@/components/voice/VoiceOrb";
 import { useRouter } from "next/navigation";
@@ -68,6 +68,9 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
 
   const start = useCallback(async () => {
     setError(null);
+    // Retry runs through here too, so release whatever the previous attempt
+    // left holding the device before asking for it again.
+    stopEverything();
     const Recognition =
       window.SpeechRecognition ?? window.webkitSpeechRecognition;
 
@@ -126,16 +129,26 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
       setInterim(live);
     };
     recognition.onerror = (event) => {
-      if (event.error !== "no-speech" && event.error !== "aborted") {
-        setError(`Speech recognition stopped: ${event.error}`);
-      }
+      void describeRecognitionError(event.error).then((outcome) => {
+        if (!outcome) return;
+        setError(outcome.message);
+        setNeedsSettings(outcome.needsBrowserSettings);
+      });
     };
     recognition.onend = () => setListening(false);
 
-    recognition.start();
+    // `start()` throws InvalidStateError if recognition is already running,
+    // which is reachable from the retry button. Unhandled, it rejected the
+    // promise and left the modal sitting on "Paused" with no explanation.
+    try {
+      recognition.start();
+    } catch {
+      setError("Dictation is already running. Close and reopen to restart it.");
+      return;
+    }
     recognitionRef.current = recognition;
     setListening(true);
-  }, []);
+  }, [stopEverything]);
 
   // Deferred a tick: `start` flips state as it opens the mic, and doing that
   // synchronously inside the effect body cascades an extra render.

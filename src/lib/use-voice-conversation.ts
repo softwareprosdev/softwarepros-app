@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { meterFromStream, resumeAudioContext } from "@/lib/audio-level";
-import { requestMicrophone, hasSpeechRecognition } from "@/lib/microphone";
+import {
+  describeRecognitionError,
+  requestMicrophone,
+  hasSpeechRecognition,
+} from "@/lib/microphone";
 import { useSpeech } from "@/lib/use-speech";
 
 export type ConversationState = "idle" | "listening" | "thinking" | "speaking";
@@ -208,13 +212,20 @@ export function useVoiceConversation(sessionId: string) {
     };
 
     recognition.onerror = (event) => {
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        setError(
-          "Microphone access is blocked for this site. Click the lock icon in your browser's address bar, allow the microphone, then try again.",
-        );
+      // no-speech and aborted are ordinary pauses, so the classifier returns
+      // null for them and the loop keeps running. Anything else ends the
+      // session — `onend` would otherwise restart into the same failure.
+      if (event.error === "no-speech" || event.error === "aborted") return;
+
+      // Stop the restart loop now, synchronously. `onend` fires immediately
+      // after this handler, and classifying the error takes a microtask —
+      // long enough for the loop to restart into the same failure.
+      activeRef.current = false;
+      void describeRecognitionError(event.error).then((outcome) => {
+        if (!outcome) return;
+        setError(outcome.message);
         teardown();
-      }
-      // no-speech and aborted are ordinary pauses, not failures.
+      });
     };
 
     recognition.onend = () => {

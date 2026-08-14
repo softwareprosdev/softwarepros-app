@@ -2,7 +2,11 @@
 
 import { useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
-import { requestMicrophone } from "@/lib/microphone";
+import {
+  describeRecognitionError,
+  getMicPermissionState,
+  requestMicrophone,
+} from "@/lib/microphone";
 import type { AttachmentSummary, InputMode } from "@/components/discovery/types";
 
 function formatBytes(bytes: number) {
@@ -84,13 +88,21 @@ export function Composer({
     // prompts on its own, but when the answer is no it fails through
     // `onerror` with nothing shown — the button just stopped working. Asking
     // here means a denial produces a message that says why and what to do.
-    const mic = await requestMicrophone();
-    if (!mic.ok) {
-      onError(mic.message);
-      return;
+    //
+    // Only when we don't already know the answer, though. Grabbing a stream
+    // purely to release it a line later makes the browser open and close the
+    // device immediately before recognition tries to claim it, and that race
+    // surfaced as a spurious "access is blocked" for visitors who had granted
+    // it. When the permission is already granted there is nothing to ask.
+    if ((await getMicPermissionState()) !== "granted") {
+      const mic = await requestMicrophone();
+      if (!mic.ok) {
+        onError(mic.message);
+        return;
+      }
+      // Recognition opens its own capture; this handle was only for permission.
+      mic.stream.getTracks().forEach((track) => track.stop());
     }
-    // Recognition opens its own capture; this handle was only for permission.
-    mic.stream.getTracks().forEach((track) => track.stop());
 
     const recognition = new Recognition();
     recognition.continuous = true;
@@ -106,15 +118,12 @@ export function Composer({
     };
     recognition.onerror = (event) => {
       setDictating(false);
-      // "no-speech" and "aborted" are normal ends to a dictation turn, not
-      // failures worth interrupting the visitor over.
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        onError(
-          "Microphone access is blocked for this site. Click the lock icon in your browser's address bar, allow the microphone, then try again.",
-        );
-      } else if (event.error !== "no-speech" && event.error !== "aborted") {
-        onError(`Dictation stopped: ${event.error}. Type your message instead.`);
-      }
+      // The classifier returns null for "no-speech" and "aborted", which are
+      // normal ends to a dictation turn rather than failures worth
+      // interrupting the visitor over.
+      void describeRecognitionError(event.error).then((outcome) => {
+        if (outcome) onError(outcome.message);
+      });
     };
     recognition.onend = () => setDictating(false);
     recognition.start();

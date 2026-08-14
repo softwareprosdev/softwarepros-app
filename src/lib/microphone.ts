@@ -76,6 +76,92 @@ const SETTINGS_HINT =
   "Click the lock or camera icon in your browser's address bar, allow the microphone for this site, then try again.";
 
 /**
+ * How a failed `SpeechRecognition` attempt should be described.
+ *
+ * Separate from `MicOutcome` because recognition fails for reasons that have
+ * nothing to do with the microphone: the transcription service itself can be
+ * unreachable or refuse the request while the mic is granted and working.
+ */
+export type RecognitionOutcome = {
+  message: string;
+  /** True only when the site's own permission really is the blocker. */
+  needsBrowserSettings: boolean;
+};
+
+/**
+ * Turns a `SpeechRecognitionErrorEvent.error` code into something worth
+ * showing, or `null` when it is an ordinary end to a turn.
+ *
+ * The reason this is async: `not-allowed` does NOT reliably mean the visitor
+ * blocked the microphone. Browsers also raise it when recognition starts
+ * outside the user gesture that authorised it — which is exactly what happens
+ * after `await requestMicrophone()` — and WebKit raises it when a
+ * `getUserMedia` stream already holds the device. Visitors who had granted
+ * access were being told to go and unblock a permission that was already on,
+ * with a retry button that could only reproduce the same error.
+ *
+ * So the live permission state is consulted before any such claim is made. If
+ * the browser says `granted`, the message must not mention permissions.
+ */
+export async function describeRecognitionError(
+  code: string,
+): Promise<RecognitionOutcome | null> {
+  switch (code) {
+    // A silence timeout and a deliberate stop. Neither is a failure.
+    case "no-speech":
+    case "aborted":
+      return null;
+
+    case "not-allowed": {
+      const state = await getMicPermissionState();
+      if (state === "granted") {
+        return {
+          message:
+            "The microphone is allowed, but this browser wouldn't start transcribing — usually another tab or app is holding the mic. Close it and press the button again, or type instead.",
+          needsBrowserSettings: false,
+        };
+      }
+      return {
+        message: `Microphone access is blocked for this site. ${SETTINGS_HINT}`,
+        needsBrowserSettings: true,
+      };
+    }
+
+    // Never the site's permission: the browser's speech backend refused. It
+    // is off by policy, unavailable in this build (several Chromium forks
+    // ship without the Google speech keys), or blocked by an extension.
+    case "service-not-allowed":
+      return {
+        message:
+          "This browser's speech service isn't available, so dictation can't run here. Try Chrome or Safari, or type your project instead.",
+        needsBrowserSettings: false,
+      };
+
+    // Recognition streams audio to a remote service; corporate proxies, VPNs
+    // and content blockers break it while the mic itself is fine.
+    case "network":
+      return {
+        message:
+          "Couldn't reach the speech service. Check your connection — a VPN, proxy or content blocker will also stop it — or type your project instead.",
+        needsBrowserSettings: false,
+      };
+
+    case "audio-capture":
+      return {
+        message:
+          "No working microphone was found. Check it's plugged in and not in use by another app, or type your project instead.",
+        needsBrowserSettings: false,
+      };
+
+    default:
+      return {
+        message: `Dictation stopped (${code}). Try again, or type your project instead.`,
+        needsBrowserSettings: false,
+      };
+  }
+}
+
+/**
  * Requests the microphone and returns a classified result rather than
  * throwing. Callers decide what to show; nothing here writes to the DOM.
  */
@@ -120,13 +206,30 @@ export async function requestMicrophone(): Promise<MicOutcome> {
       // NotAllowedError covers both an explicit denial and a Permissions-Policy
       // block; SecurityError is the older spelling some browsers still use.
       case "NotAllowedError":
-      case "SecurityError":
+      case "SecurityError": {
+        // But it is *also* what Chrome throws when the site permission is
+        // granted and the operating system is the one refusing — Windows
+        // Privacy settings and macOS Screen & Privacy both do this. Sending
+        // those visitors to the address bar is a dead end: the switch they
+        // are told to flip is already on, so the retry fails identically
+        // every time. Ask the browser what it actually thinks first.
+        const state = await getMicPermissionState();
+        if (state === "granted") {
+          return {
+            ok: false,
+            reason: "denied",
+            message:
+              "This site is allowed to use the microphone, but your system is blocking it. On Windows: Settings → Privacy & security → Microphone, and turn on access for your browser. On macOS: System Settings → Privacy & Security → Microphone.",
+            needsBrowserSettings: false,
+          };
+        }
         return {
           ok: false,
           reason: "denied",
           message: `Microphone access is blocked for this site. ${SETTINGS_HINT}`,
           needsBrowserSettings: true,
         };
+      }
 
       case "NotFoundError":
       case "OverconstrainedError":
