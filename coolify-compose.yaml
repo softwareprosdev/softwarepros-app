@@ -8,8 +8,16 @@
 # `migrate` and `app` are the same image with different commands. Both declare
 # the same `build` block and image tag, so the second build is a cache hit.
 #
+# Written deliberately flat — no YAML anchors, no merge keys, and `environment`
+# as a mapping in every service. Coolify parses this file and rewrites it
+# (injecting build ARGs) before `docker compose` ever sees it, and its rewriter
+# turns a list-form `environment` into integer-keyed YAML, which then fails the
+# build with "non-string key in services.app.environment: 0". Duplication here
+# buys a deploy that works.
+#
 # Requires in Coolify:
 #   - Build pack: Docker Compose, compose file: coolify-compose.yaml
+#   - A domain set on the `app` service, port 3000
 #   - "Connect To Predefined Network" enabled, if DATABASE_URL points at a
 #     Postgres resource managed by Coolify — without it this stack sits on its
 #     own network and cannot resolve that hostname.
@@ -17,20 +25,16 @@
 #     ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_* trio if voice
 #     is wanted). NEXT_PUBLIC_SITE_URL must also be marked a Build Variable.
 
-x-app: &app
-  build:
-    context: .
-    dockerfile: Dockerfile
-    args:
-      # Inlined into the client bundle at build time. Runtime is too late.
-      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
-  image: softwarepros-app:latest
-
 services:
   # Runs to completion, then exits. Not a long-lived service — an exited
   # `migrate` container with code 0 is the healthy state.
   migrate:
-    <<: *app
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+    image: softwarepros-app:latest
     command: ["./scripts/db-migrate.sh"]
     restart: "no"
     environment:
@@ -40,23 +44,27 @@ services:
       MIGRATE_RETRY_SECONDS: ${MIGRATE_RETRY_SECONDS:-5}
 
   app:
-    <<: *app
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Inlined into the client bundle at build time. Runtime is too late.
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+    image: softwarepros-app:latest
     restart: unless-stopped
     depends_on:
       migrate:
         # The whole reason this file exists: no migrations, no app.
         condition: service_completed_successfully
     environment:
-      # Coolify fills this with the FQDN it routes to port 3000.
-      - SERVICE_FQDN_APP_3000
-      - DATABASE_URL=${DATABASE_URL}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ADMIN_USER=${ADMIN_USER:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
-      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-}
-      - ELEVENLABS_MODEL_ID=${ELEVENLABS_MODEL_ID:-}
+      DATABASE_URL: ${DATABASE_URL}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+      ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-}
     expose:
       - "3000"
     healthcheck:
