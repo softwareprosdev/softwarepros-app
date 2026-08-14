@@ -137,12 +137,19 @@ export async function describeRecognitionError(
         needsBrowserSettings: false,
       };
 
-    // Recognition streams audio to a remote service; corporate proxies, VPNs
-    // and content blockers break it while the mic itself is fine.
+    // Recognition streams audio to the browser vendor's service, not to this
+    // site; corporate proxies, VPNs and content blockers break it while the
+    // mic itself is fine.
+    //
+    // "Check your connection" is not said here. By the time anyone reads this
+    // they have loaded the page and usually watched their own words appear in
+    // the transcript, so their connection demonstrably works — and the caller
+    // only surfaces this after several dropouts in a row. Naming the likely
+    // cause beats sending someone to test a connection that is not the fault.
     case "network":
       return {
         message:
-          "Couldn't reach the speech service. Check your connection — a VPN, proxy or content blocker will also stop it — or type your project instead.",
+          "Dictation keeps losing the browser's own speech service — usually a VPN, proxy or content blocker rather than your connection. Anything already said has been sent; carry on by typing, or start the microphone again.",
         needsBrowserSettings: false,
       };
 

@@ -11,6 +11,13 @@ import { useSpeech } from "@/lib/use-speech";
 
 export type ConversationState = "idle" | "listening" | "thinking" | "speaking";
 
+/**
+ * How many `network` dropouts to ride out before telling the visitor. Chrome
+ * raises these on healthy connections; one is noise, a run of them is a fault.
+ */
+const NETWORK_RETRY_LIMIT = 3;
+const RESTART_BACKOFF_MS = 800;
+
 export type ConversationTurn = {
   role: "user" | "assistant";
   text: string;
@@ -40,6 +47,15 @@ export function useVoiceConversation(sessionId: string) {
   const rafRef = useRef<number | null>(null);
   // Guards against a late recognition result restarting a torn-down loop.
   const activeRef = useRef(false);
+  /**
+   * Whether recognition should keep restarting. Deliberately separate from
+   * `activeRef`: the microphone failing must not cancel a turn already handed
+   * to Claude. Conflating the two meant a dropped transcription threw away the
+   * visitor's sentence *and* the reply it had already earned.
+   */
+  const listeningRef = useRef(false);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const networkRetriesRef = useRef(0);
 
   const speech = useSpeech();
 
@@ -53,8 +69,16 @@ export function useVoiceConversation(sessionId: string) {
     return spoken > 0.01 ? spoken : micLevelRef.current;
   }, [speech]);
 
-  const teardown = useCallback(() => {
-    activeRef.current = false;
+  /**
+   * Releases the microphone and stops recognition, leaving the conversation
+   * itself alone: an in-flight reply still arrives, and still gets spoken.
+   */
+  const stopListening = useCallback(() => {
+    listeningRef.current = false;
+
+    if (restartTimerRef.current !== null) clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = null;
+
     // Detach handlers before stopping: `onend` would otherwise fire during
     // teardown and restart recognition we are trying to shut down.
     const recognition = recognitionRef.current;
@@ -75,10 +99,15 @@ export function useVoiceConversation(sessionId: string) {
     micStreamRef.current = null;
     micLevelRef.current = 0;
 
+    setInterim("");
+  }, []);
+
+  const teardown = useCallback(() => {
+    activeRef.current = false;
+    stopListening();
     speech.stop();
     setState("idle");
-    setInterim("");
-  }, [speech]);
+  }, [speech, stopListening]);
 
   useEffect(() => () => teardown(), [teardown]);
 
@@ -178,6 +207,8 @@ export function useVoiceConversation(sessionId: string) {
     await resumeAudioContext();
 
     activeRef.current = true;
+    listeningRef.current = true;
+    networkRetriesRef.current = 0;
     micStreamRef.current = mic.stream;
     micMeterRef.current = meterFromStream(mic.stream);
 
@@ -203,6 +234,10 @@ export function useVoiceConversation(sessionId: string) {
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
+          // Transcription is working, so any earlier dropout was a blip and
+          // the next one deserves a fresh allowance rather than the tail of
+          // an old one.
+          networkRetriesRef.current = 0;
           void send(result[0].transcript);
         } else {
           live += result[0].transcript;
@@ -213,42 +248,70 @@ export function useVoiceConversation(sessionId: string) {
 
     recognition.onerror = (event) => {
       // no-speech and aborted are ordinary pauses, so the classifier returns
-      // null for them and the loop keeps running. Anything else ends the
-      // session — `onend` would otherwise restart into the same failure.
+      // null for them and the loop keeps running.
       if (event.error === "no-speech" || event.error === "aborted") return;
+
+      // `network` means the browser's speech backend dropped out, and on a
+      // long dictation Chrome raises it routinely — mid-sentence, after
+      // minutes of clean transcription, on a connection that is plainly fine.
+      // Treating the first one as fatal ended conversations that would have
+      // continued if simply restarted, so it is only reported once it keeps
+      // happening.
+      if (
+        event.error === "network" &&
+        networkRetriesRef.current < NETWORK_RETRY_LIMIT
+      ) {
+        networkRetriesRef.current += 1;
+        return;
+      }
 
       // Stop the restart loop now, synchronously. `onend` fires immediately
       // after this handler, and classifying the error takes a microtask —
       // long enough for the loop to restart into the same failure.
-      activeRef.current = false;
+      //
+      // Note this stops *listening*, not the conversation: `activeRef` stays
+      // set, so a sentence already sent to Claude still gets its reply.
+      listeningRef.current = false;
       void describeRecognitionError(event.error).then((outcome) => {
         if (!outcome) return;
         setError(outcome.message);
-        teardown();
+        stopListening();
+        // Leave a turn in progress alone; it owns the state until it finishes.
+        setState((current) =>
+          current === "thinking" || current === "speaking" ? current : "idle",
+        );
       });
     };
 
     recognition.onend = () => {
       // Chrome ends continuous recognition after a silence regardless of the
       // flag, so it is restarted for as long as the conversation is open.
-      if (activeRef.current) {
+      if (!activeRef.current || !listeningRef.current) return;
+
+      // Restarting instantly after a dropout just re-fails and burns the
+      // retry allowance in under a second; give the backend a moment.
+      const delay = networkRetriesRef.current > 0 ? RESTART_BACKOFF_MS : 0;
+      restartTimerRef.current = setTimeout(() => {
+        if (!activeRef.current || !listeningRef.current) return;
         try {
           recognition.start();
         } catch {
           // Already restarting — harmless.
         }
-      }
+      }, delay);
     };
 
     recognition.start();
     recognitionRef.current = recognition;
     setState("listening");
-  }, [send, teardown]);
+  }, [send, stopListening]);
 
-  // Return to listening once the architect stops talking.
+  // Return to listening once the architect stops talking — unless the
+  // microphone died while it was talking, in which case claiming to listen
+  // would be a lie.
   useEffect(() => {
     if (state === "speaking" && !speech.speaking && activeRef.current) {
-      setState("listening");
+      setState(listeningRef.current ? "listening" : "idle");
     }
   }, [state, speech.speaking]);
 
