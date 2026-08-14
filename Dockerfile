@@ -32,6 +32,12 @@ COPY --from=deps /app/node_modules ./node_modules
 # deps stage. Copied after the source so a stale local copy cannot shadow it.
 COPY --from=deps /app/src/generated ./src/generated
 
+# public/ is empty and git does not track empty directories, so a fresh clone
+# has no public/ and the runtime `COPY /app/public` fails the build. A local
+# checkout keeps the directory, which is exactly why this only breaks on the
+# deploy server. Create it so the copy has something to find either way.
+RUN mkdir -p public
+
 # NEXT_PUBLIC_* is inlined into the client bundle at build time, so it has to
 # be a build arg. Set it in Coolify or the deploy ships the fallback origin in
 # every canonical URL, sitemap entry and Open Graph tag.
