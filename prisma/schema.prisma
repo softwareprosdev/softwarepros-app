@@ -85,7 +85,8 @@ model DiscoverySession {
   attachments Attachment[]
   summaries   ProjectSummary[]
   leads       Lead[]
-
+  contracts   Contract[]
+  
   @@index([createdAt])
   @@index([ownerToken, updatedAt])
   @@index([userId, updatedAt])
