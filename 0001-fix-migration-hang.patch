@@ -1,0 +1,152 @@
+From be85f4fbe9a30ed62d0e60d4f4aa1199267a64e0 Mon Sep 17 00:00:00 2001
+From: Michael <asoftwaredeveloper@proton.me>
+Date: Mon, 31 Aug 2026 10:02:33 +0000
+Subject: [PATCH 1/2] Fix deploys hanging: use a direct connection for
+ migrations
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+prisma migrate deploy holds a Postgres advisory lock across statements.
+DATABASE_URL points at Supabase's transaction-mode pooler (:6543), which
+hands out a different physical connection per statement, so the CLI can
+never observe its own lock and migrate deploy hangs forever instead of
+failing. The container never finishes starting, the healthcheck times
+out, and Coolify shows the deploy as degraded even though the image
+built successfully.
+
+Add a DIRECT_URL env var — a session-mode or direct (non-pooled)
+connection — and point prisma.config.ts's CLI datasource at it, so
+migrations use a connection that can actually hold the lock. The app's
+own runtime queries (src/lib/prisma.ts) are untouched and keep using
+the pooled DATABASE_URL.
+
+Requires setting DIRECT_URL in Coolify's environment variables for this
+resource before the next deploy.
+---
+ .env.example          | 14 +++++++++++++-
+ coolify-compose.yaml  | 18 +++++++++++++++---
+ prisma.config.ts      | 10 +++++++++-
+ scripts/db-migrate.sh | 18 +++++++++++++++---
+ 4 files changed, 52 insertions(+), 8 deletions(-)
+
+diff --git a/.env.example b/.env.example
+index e5fdda7..11bb107 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,8 +1,20 @@
+ # Copy to .env and fill in real values. Never commit a populated .env.
+ 
+-# PostgreSQL connection string used by Prisma.
++# PostgreSQL connection string the app uses for its own runtime queries
++# (src/lib/prisma.ts). Safe to point at a connection pooler (e.g. Supabase's
++# transaction-mode pooler on :6543) — this one is never used for migrations.
+ DATABASE_URL="postgresql://user:password@localhost:5432/softwarepros?schema=public"
+ 
++# PostgreSQL connection string the Prisma CLI uses for `migrate deploy`
++# (scripts/db-migrate.sh, wired through prisma.config.ts). This one MUST be
++# a session-mode or direct (non-pooled) connection: `migrate deploy` holds
++# an advisory lock across statements, and a transaction-mode pooler hands
++# out a different physical connection per statement, so the lock can never
++# be observed and the migration hangs forever instead of failing. On
++# Supabase this is either db.<ref>.supabase.co:5432 (direct) or the same
++# pooler host on :5432 instead of :6543 (session mode).
++DIRECT_URL="postgresql://user:password@localhost:5432/softwarepros?schema=public"
++
+ # Anthropic API key for the AI Discovery Center.
+ ANTHROPIC_API_KEY=""
+ 
+diff --git a/coolify-compose.yaml b/coolify-compose.yaml
+index 6c22deb..a88a794 100644
+--- a/coolify-compose.yaml
++++ b/coolify-compose.yaml
+@@ -20,9 +20,20 @@
+ #   - The domain on the `app` service, written with the container port:
+ #     https://your-domain.com:3000  (the :3000 tells Coolify where to route;
+ #     it is not part of the public URL)
+-#   - Environment variables: DATABASE_URL, ANTHROPIC_API_KEY, ADMIN_USER,
+-#     ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_* trio for
+-#     voice). NEXT_PUBLIC_SITE_URL must also be marked a Build Variable.
++#   - Environment variables: DATABASE_URL, DIRECT_URL, ANTHROPIC_API_KEY,
++#     ADMIN_USER, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_*
++#     trio for voice). NEXT_PUBLIC_SITE_URL must also be marked a Build
++#     Variable.
++#
++#     DATABASE_URL and DIRECT_URL are deliberately different connections:
++#     DATABASE_URL is the app's pooled runtime connection (e.g. Supabase's
++#     transaction-mode pooler on :6543 — src/lib/prisma.ts reads it directly).
++#     DIRECT_URL is what prisma.config.ts hands the CLI for `migrate deploy`
++#     in scripts/db-migrate.sh, and it must be session-mode or direct — on
++#     Supabase, the same pooler host on :5432, or db.<ref>.supabase.co:5432.
++#     A transaction-mode pooler can't hold the advisory lock `migrate deploy`
++#     needs, so pointing DIRECT_URL at one makes the migration hang forever
++#     rather than fail, and the container never becomes healthy.
+ 
+ networks:
+   # Coolify's Traefik proxy and its managed Postgres both live here. A stack
+@@ -46,6 +57,7 @@ services:
+       - coolify
+     environment:
+       DATABASE_URL: ${DATABASE_URL}
++      DIRECT_URL: ${DIRECT_URL}
+       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+       ADMIN_USER: ${ADMIN_USER:-admin}
+       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+diff --git a/prisma.config.ts b/prisma.config.ts
+index 831a20f..e78fe2b 100644
+--- a/prisma.config.ts
++++ b/prisma.config.ts
+@@ -9,6 +9,14 @@ export default defineConfig({
+     path: "prisma/migrations",
+   },
+   datasource: {
+-    url: process.env["DATABASE_URL"],
++    // The CLI (migrate deploy, migrate status, ...) needs a session-level
++    // connection to hold the advisory lock it takes for the duration of a
++    // migration. A transaction-mode pooler — like DATABASE_URL below, which
++    // stays on the fast pooler for the app's runtime queries — hands out a
++    // different physical connection per statement, so the CLI can never see
++    // a lock it just took and hangs indefinitely instead of failing. Point
++    // DIRECT_URL at a session-mode or direct (non-pooled) connection: on
++    // Supabase, the same pooler host on port 5432, or db.<ref>.supabase.co.
++    url: process.env["DIRECT_URL"],
+   },
+ });
+diff --git a/scripts/db-migrate.sh b/scripts/db-migrate.sh
+index 615a37f..cbc7ad6 100755
+--- a/scripts/db-migrate.sh
++++ b/scripts/db-migrate.sh
+@@ -22,15 +22,27 @@ set -eu
+ attempts="${MIGRATE_MAX_ATTEMPTS:-12}"
+ delay="${MIGRATE_RETRY_SECONDS:-5}"
+ 
++if [ -z "${DIRECT_URL:-}" ]; then
++  echo "db-migrate: DIRECT_URL is not set." >&2
++  echo "db-migrate: set it in the Coolify environment variables for this resource — a" >&2
++  echo "db-migrate: session-mode or direct (non-pooled) Postgres connection. Pointing it" >&2
++  echo "db-migrate: at a transaction-mode pooler (e.g. Supabase's :6543 pooler) makes" >&2
++  echo "db-migrate: 'prisma migrate deploy' hang forever instead of failing, because it" >&2
++  echo "db-migrate: can never observe the advisory lock it just took." >&2
++  exit 1
++fi
++
+ if [ -z "${DATABASE_URL:-}" ]; then
+   echo "db-migrate: DATABASE_URL is not set." >&2
+   echo "db-migrate: set it in the Coolify environment variables for this resource." >&2
+   exit 1
+ fi
+ 
+-# Never echo DATABASE_URL — it carries the password, and deploy logs are not
+-# a secret store. The host is enough to tell "wrong database" from "no database".
+-echo "db-migrate: applying migrations (up to ${attempts} attempts, ${delay}s apart)"
++# Never echo DATABASE_URL or DIRECT_URL — they carry the password, and deploy
++# logs are not a secret store. The host is enough to tell "wrong database"
++# from "no database". Migrations run over DIRECT_URL; the app's own queries
++# (src/lib/prisma.ts) use the pooled DATABASE_URL instead.
++echo "db-migrate: applying migrations via DIRECT_URL (up to ${attempts} attempts, ${delay}s apart)"
+ 
+ n=1
+ while :; do
+-- 
+2.43.0
+

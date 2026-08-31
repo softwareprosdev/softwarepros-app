@@ -1,0 +1,2945 @@
+From 2ac97422a636ac015fed7e548c96a98da459a939 Mon Sep 17 00:00:00 2001
+From: Michael <asoftwaredeveloper@proton.me>
+Date: Mon, 31 Aug 2026 10:32:40 +0000
+Subject: [PATCH 2/2] Add client accounts, AI cost estimates, contracts, and
+ Stripe deposits
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Clients now sign up (Supabase Auth) before using the AI Discovery
+Center, and every session/summary/chat/upload route is scoped to the
+signed-in owner so one client can never read another's conversation
+(the chat API previously had no access control at all). Building on
+that: the AI drafts a cost-estimate range for a completed summary,
+a Senior Software Architect reviews and approves pricing before a
+contract is ever shown to the client, the client signs it in-app,
+and pays a 50% deposit via Stripe Checkout before work starts.
+
+- prisma: Contract/Payment models, ProjectSummary estimate columns,
+  DiscoverySession.userId, hand-written migration SQL
+- src/lib/supabase: browser/server/middleware clients (@supabase/ssr)
+- src/proxy.ts: auth gate for /discovery, /contract, /account and
+  their APIs; /admin keeps its existing Basic auth path untouched
+- src/lib/ai/estimate.ts: cost-estimate draft on a cheaper model,
+  kept separate from the client-facing prompts that must never quote
+  a price directly
+- src/app/api/contracts, .../sign, .../checkout,
+  src/app/api/webhooks/stripe: draft -> human review -> sign -> pay,
+  webhook is the only place a payment is ever marked paid
+- src/app/{login,signup,account,contract}, src/components/{auth,contract}:
+  client-facing auth and contract/payment UI
+- src/app/admin/contracts, src/components/admin: staff review queue
+- Dockerfile: npm install instead of npm ci (package-lock.json needs
+  a local `npm install` + commit to fully re-pin; see Dockerfile
+  comment), new NEXT_PUBLIC_SUPABASE_* build args
+- coolify-compose.yaml, .env.example, next.config.ts: new env vars
+  wired through to build args, runtime environment, and CSP connect-src
+
+Contract wording is a starting template, not legal advice — needs a
+lawyer's review before real client use. Click-to-sign is a lightweight
+audit trail (typed name + hash + IP/UA + timestamp), not a certified
+e-signature platform.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014zSVeqNiafqfrioDfzRqJo
+---
+ .env.example                                  |  21 ++
+ Dockerfile                                    |  21 +-
+ coolify-compose.yaml                          |  21 +-
+ next.config.ts                                |  19 +-
+ package.json                                  |   3 +
+ .../migration.sql                             |  88 +++++++++
+ prisma/schema.prisma                          | 118 +++++++++++-
+ src/app/account/page.tsx                      |  41 ++++
+ src/app/admin/contracts/page.tsx              | 154 +++++++++++++++
+ .../api/admin/contracts/[id]/approve/route.ts |  84 ++++++++
+ src/app/api/chat/route.ts                     |  12 +-
+ src/app/api/contracts/[id]/checkout/route.ts  | 101 ++++++++++
+ src/app/api/contracts/[id]/sign/route.ts      |  82 ++++++++
+ src/app/api/contracts/route.ts                | 171 +++++++++++++++++
+ src/app/api/sessions/route.ts                 |  25 ++-
+ src/app/api/summary/route.ts                  |  26 ++-
+ src/app/api/upload/route.ts                   |   8 +-
+ src/app/api/webhooks/stripe/route.ts          |  70 +++++++
+ src/app/contract/[publicId]/page.tsx          |  87 +++++++++
+ src/app/discovery/[id]/page.tsx               |  31 +--
+ src/app/login/page.tsx                        |  34 ++++
+ src/app/signup/page.tsx                       |  37 ++++
+ src/app/summary/[id]/page.tsx                 |  10 +
+ src/components/admin/ContractApproveForm.tsx  | 130 +++++++++++++
+ src/components/auth/LoginForm.tsx             | 100 ++++++++++
+ src/components/auth/SignOutButton.tsx         |  28 +++
+ src/components/auth/SignupForm.tsx            | 148 +++++++++++++++
+ src/components/contract/ContractView.tsx      | 179 ++++++++++++++++++
+ .../summary/BuildContractButton.tsx           |  75 ++++++++
+ src/lib/ai/client.ts                          |  10 +
+ src/lib/ai/estimate.ts                        |  45 +++++
+ src/lib/ai/schemas.ts                         |  26 +++
+ src/lib/contract.ts                           |  89 +++++++++
+ src/lib/session-user.ts                       |  32 ++++
+ src/lib/stripe.ts                             |  26 +++
+ src/lib/supabase/client.ts                    |  21 ++
+ src/lib/supabase/middleware.ts                |  58 ++++++
+ src/lib/supabase/server.ts                    |  33 ++++
+ src/proxy.ts                                  |  77 +++++++-
+ 39 files changed, 2301 insertions(+), 40 deletions(-)
+ create mode 100644 prisma/migrations/20260831103000_auth_contracts_payments/migration.sql
+ create mode 100644 src/app/account/page.tsx
+ create mode 100644 src/app/admin/contracts/page.tsx
+ create mode 100644 src/app/api/admin/contracts/[id]/approve/route.ts
+ create mode 100644 src/app/api/contracts/[id]/checkout/route.ts
+ create mode 100644 src/app/api/contracts/[id]/sign/route.ts
+ create mode 100644 src/app/api/contracts/route.ts
+ create mode 100644 src/app/api/webhooks/stripe/route.ts
+ create mode 100644 src/app/contract/[publicId]/page.tsx
+ create mode 100644 src/app/login/page.tsx
+ create mode 100644 src/app/signup/page.tsx
+ create mode 100644 src/components/admin/ContractApproveForm.tsx
+ create mode 100644 src/components/auth/LoginForm.tsx
+ create mode 100644 src/components/auth/SignOutButton.tsx
+ create mode 100644 src/components/auth/SignupForm.tsx
+ create mode 100644 src/components/contract/ContractView.tsx
+ create mode 100644 src/components/summary/BuildContractButton.tsx
+ create mode 100644 src/lib/ai/estimate.ts
+ create mode 100644 src/lib/contract.ts
+ create mode 100644 src/lib/session-user.ts
+ create mode 100644 src/lib/stripe.ts
+ create mode 100644 src/lib/supabase/client.ts
+ create mode 100644 src/lib/supabase/middleware.ts
+ create mode 100644 src/lib/supabase/server.ts
+
+diff --git a/.env.example b/.env.example
+index 11bb107..ed34e80 100644
+--- a/.env.example
++++ b/.env.example
+@@ -18,6 +18,27 @@ DIRECT_URL="postgresql://user:password@localhost:5432/softwarepros?schema=public
+ # Anthropic API key for the AI Discovery Center.
+ ANTHROPIC_API_KEY=""
+ 
++# ── Client accounts (Supabase Auth) ─────────────────────────────────────
++# Same Supabase project as DATABASE_URL/DIRECT_URL above — from the
++# Supabase dashboard: Project Settings -> API. These two are safe to expose
++# to the browser (that's what NEXT_PUBLIC_ means here); Supabase's Row Level
++# Security, not secrecy of these values, is what protects data. Required for
++# signup/login and for /discovery, /account and /contract to work at all.
++NEXT_PUBLIC_SUPABASE_URL=""
++NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=""
++
++# ── Payments (Stripe) ────────────────────────────────────────────────────
++# From the Stripe dashboard: Developers -> API keys. Server-only — never
++# prefix this with NEXT_PUBLIC_. Start with a test-mode secret key
++# (sk_test_...) and test end to end before ever switching to a live key.
++STRIPE_SECRET_KEY=""
++
++# From the Stripe dashboard: Developers -> Webhooks, after adding an
++# endpoint for https://<your-domain>/api/webhooks/stripe listening for
++# checkout.session.completed. Without this set, a deposit payment
++# completes on Stripe's side but this app never finds out.
++STRIPE_WEBHOOK_SECRET=""
++
+ # Admin area (/admin/*, /api/admin/*) — HTTP Basic auth.
+ # Leaving ADMIN_PASSWORD empty disables admin access entirely (fails closed).
+ ADMIN_USER="admin"
+diff --git a/Dockerfile b/Dockerfile
+index 32146fb..7e42250 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -15,14 +15,22 @@ WORKDIR /app
+ 
+ # ---------------------------------------------------------------- dependencies
+ FROM base AS deps
+-# prisma/ and prisma.config.ts land before `npm ci` because `postinstall` runs
+-# `prisma generate`, which reads them.
++# prisma/ and prisma.config.ts land before `npm install` because `postinstall`
++# runs `prisma generate`, which reads them.
+ COPY package.json package-lock.json prisma.config.ts ./
+ COPY prisma ./prisma
+ # Generate needs *a* connection string present, never a reachable one — no
+ # database is contacted at build time.
+ ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
+-RUN npm ci
++# `npm install`, not `npm ci`: package-lock.json was last regenerated before
++# @supabase/ssr, @supabase/supabase-js and stripe were added to package.json,
++# and `npm ci` hard-fails on any mismatch between the two rather than
++# reconciling it. `npm install` updates the lock file to match during the
++# build instead, at the cost of not pinning transitive versions as tightly
++# as `npm ci` would. Run `npm install` locally once (committing the
++# regenerated package-lock.json) and switch this back to `npm ci` to restore
++# fully reproducible builds.
++RUN npm install
+ 
+ # --------------------------------------------------------------------- build
+ FROM base AS builder
+@@ -43,6 +51,13 @@ RUN mkdir -p public
+ # every canonical URL, sitemap entry and Open Graph tag.
+ ARG NEXT_PUBLIC_SITE_URL
+ ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
++# Same deal: Supabase Auth runs client-side, so its project URL and publishable
++# key have to be baked into the bundle here too, not just handed to the
++# container at runtime.
++ARG NEXT_PUBLIC_SUPABASE_URL
++ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
++ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
++ENV NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+ ENV NEXT_TELEMETRY_DISABLED=1
+ # Every page that reads the database is `force-dynamic`, so the build itself
+ # never connects. The placeholder only satisfies module-level construction.
+diff --git a/coolify-compose.yaml b/coolify-compose.yaml
+index a88a794..c3f61de 100644
+--- a/coolify-compose.yaml
++++ b/coolify-compose.yaml
+@@ -21,9 +21,12 @@
+ #     https://your-domain.com:3000  (the :3000 tells Coolify where to route;
+ #     it is not part of the public URL)
+ #   - Environment variables: DATABASE_URL, DIRECT_URL, ANTHROPIC_API_KEY,
+-#     ADMIN_USER, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_*
+-#     trio for voice). NEXT_PUBLIC_SITE_URL must also be marked a Build
+-#     Variable.
++#     ADMIN_USER, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL, NEXT_PUBLIC_SUPABASE_URL,
++#     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, STRIPE_SECRET_KEY,
++#     STRIPE_WEBHOOK_SECRET (and the ELEVENLABS_* trio for voice).
++#     NEXT_PUBLIC_SITE_URL, NEXT_PUBLIC_SUPABASE_URL and
++#     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY must also be marked Build Variables
++#     — see the ARG/ENV pairs in Dockerfile for why.
+ #
+ #     DATABASE_URL and DIRECT_URL are deliberately different connections:
+ #     DATABASE_URL is the app's pooled runtime connection (e.g. Supabase's
+@@ -34,6 +37,12 @@
+ #     A transaction-mode pooler can't hold the advisory lock `migrate deploy`
+ #     needs, so pointing DIRECT_URL at one makes the migration hang forever
+ #     rather than fail, and the container never becomes healthy.
++#
++#     NEXT_PUBLIC_SUPABASE_URL / _PUBLISHABLE_KEY are the same Supabase
++#     project as DATABASE_URL — from Project Settings -> API. STRIPE_SECRET_KEY
++#     and STRIPE_WEBHOOK_SECRET come from the Stripe dashboard; start both in
++#     Stripe's test mode and confirm a full sign -> pay -> webhook round trip
++#     before ever switching to live keys.
+ 
+ networks:
+   # Coolify's Traefik proxy and its managed Postgres both live here. A stack
+@@ -50,6 +59,8 @@ services:
+       args:
+         # Inlined into the client bundle at build time. Runtime is too late.
+         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
++        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
++        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+     image: softwarepros-app:latest
+     restart: unless-stopped
+     networks:
+@@ -62,6 +73,10 @@ services:
+       ADMIN_USER: ${ADMIN_USER:-admin}
+       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
++      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
++      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
++      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
++      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+       ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-}
+diff --git a/next.config.ts b/next.config.ts
+index c1728f7..fa5a1dc 100644
+--- a/next.config.ts
++++ b/next.config.ts
+@@ -2,6 +2,23 @@ import type { NextConfig } from "next";
+ 
+ const isDev = process.env.NODE_ENV === "development";
+ 
++// Supabase Auth (@supabase/ssr's browser client) talks to the project's API
++// directly from the browser for sign-up/login/session refresh — that origin
++// has to be in connect-src or every auth call is silently blocked by CSP.
++// Read from the same build arg that inlines NEXT_PUBLIC_SUPABASE_URL into the
++// bundle (see the ARG/ENV pair in Dockerfile), falling back to the general
++// *.supabase.co pattern so a missing env var degrades to "works" rather than
++// "auth is silently broken in prod".
++const supabaseConnectSrc = (() => {
++  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  if (!url) return "https://*.supabase.co";
++  try {
++    return new URL(url).origin;
++  } catch {
++    return "https://*.supabase.co";
++  }
++})();
++
+ /**
+  * `unsafe-inline` for styles is required by Next's inlined critical CSS and by
+  * the design's inline `style` attributes. Scripts additionally need
+@@ -13,7 +30,7 @@ const csp = [
+   "style-src 'self' 'unsafe-inline'",
+   "img-src 'self' data: blob: https://storage.googleapis.com",
+   "font-src 'self' data:",
+-  "connect-src 'self'",
++  `connect-src 'self' ${supabaseConnectSrc}`,
+   "media-src 'self' blob:",
+   "object-src 'none'",
+   "base-uri 'self'",
+diff --git a/package.json b/package.json
+index 5c8f744..c6cad09 100644
+--- a/package.json
++++ b/package.json
+@@ -23,10 +23,13 @@
+     "@fortawesome/react-fontawesome": "^3.5.0",
+     "@prisma/adapter-pg": "^7.9.1",
+     "@prisma/client": "^7.9.1",
++    "@supabase/ssr": "^0.7.0",
++    "@supabase/supabase-js": "^2.58.0",
+     "next": "16.3.0",
+     "react": "19.2.8",
+     "react-dom": "19.2.8",
+     "server-only": "^0.0.1",
++    "stripe": "^19.0.0",
+     "zod": "^4.4.3"
+   },
+   "devDependencies": {
+diff --git a/prisma/migrations/20260831103000_auth_contracts_payments/migration.sql b/prisma/migrations/20260831103000_auth_contracts_payments/migration.sql
+new file mode 100644
+index 0000000..796b446
+--- /dev/null
++++ b/prisma/migrations/20260831103000_auth_contracts_payments/migration.sql
+@@ -0,0 +1,88 @@
++-- CreateEnum
++CREATE TYPE "ContractStatus" AS ENUM ('PENDING_REVIEW', 'SENT', 'SIGNED', 'VOID');
++
++-- CreateEnum
++CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'PAID', 'FAILED', 'REFUNDED');
++
++-- AlterTable
++ALTER TABLE "DiscoverySession" ADD COLUMN     "userId" TEXT;
++
++-- AlterTable
++ALTER TABLE "ProjectSummary" ADD COLUMN     "estimatedLowCents" INTEGER,
++ADD COLUMN     "estimatedHighCents" INTEGER,
++ADD COLUMN     "estimateNotes" TEXT;
++
++-- CreateTable
++CREATE TABLE "Contract" (
++    "id" TEXT NOT NULL,
++    "publicId" TEXT NOT NULL,
++    "userId" TEXT NOT NULL,
++    "sessionId" TEXT,
++    "summaryId" TEXT,
++    "clientName" TEXT NOT NULL,
++    "clientEmail" TEXT NOT NULL,
++    "projectTitle" TEXT NOT NULL,
++    "scopeText" TEXT NOT NULL,
++    "bodyText" TEXT NOT NULL,
++    "bodyHash" TEXT,
++    "currency" TEXT NOT NULL DEFAULT 'usd',
++    "totalCents" INTEGER NOT NULL,
++    "depositCents" INTEGER NOT NULL,
++    "status" "ContractStatus" NOT NULL DEFAULT 'PENDING_REVIEW',
++    "reviewedAt" TIMESTAMP(3),
++    "reviewedBy" TEXT,
++    "signedAt" TIMESTAMP(3),
++    "signerName" TEXT,
++    "signerIp" TEXT,
++    "signerUserAgent" TEXT,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "Contract_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateTable
++CREATE TABLE "Payment" (
++    "id" TEXT NOT NULL,
++    "contractId" TEXT NOT NULL,
++    "provider" TEXT NOT NULL DEFAULT 'stripe',
++    "stripeSessionId" TEXT,
++    "stripePaymentIntentId" TEXT,
++    "amountCents" INTEGER NOT NULL,
++    "currency" TEXT NOT NULL DEFAULT 'usd',
++    "status" "PaymentStatus" NOT NULL DEFAULT 'PENDING',
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "paidAt" TIMESTAMP(3),
++
++    CONSTRAINT "Payment_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateIndex
++CREATE INDEX "DiscoverySession_userId_updatedAt_idx" ON "DiscoverySession"("userId", "updatedAt");
++
++-- CreateIndex
++CREATE UNIQUE INDEX "Contract_publicId_key" ON "Contract"("publicId");
++
++-- CreateIndex
++CREATE INDEX "Contract_userId_idx" ON "Contract"("userId");
++
++-- CreateIndex
++CREATE INDEX "Contract_status_idx" ON "Contract"("status");
++
++-- CreateIndex
++CREATE UNIQUE INDEX "Payment_stripeSessionId_key" ON "Payment"("stripeSessionId");
++
++-- CreateIndex
++CREATE INDEX "Payment_contractId_idx" ON "Payment"("contractId");
++
++-- CreateIndex
++CREATE INDEX "Payment_status_idx" ON "Payment"("status");
++
++-- AddForeignKey
++ALTER TABLE "Contract" ADD CONSTRAINT "Contract_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "DiscoverySession"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "Contract" ADD CONSTRAINT "Contract_summaryId_fkey" FOREIGN KEY ("summaryId") REFERENCES "ProjectSummary"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "Payment" ADD CONSTRAINT "Payment_contractId_fkey" FOREIGN KEY ("contractId") REFERENCES "Contract"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index ef3c5af..fd33806 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -27,14 +27,37 @@ enum LeadStatus {
+   ARCHIVED
+ }
+ 
++enum ContractStatus {
++  /// AI-drafted, priced, and waiting on a human architect's review. Never
++  /// shown to the client — see api/contracts/route.ts and lib/contract.ts.
++  PENDING_REVIEW
++  /// Reviewed, approved, and visible to the client for signature.
++  SENT
++  SIGNED
++  VOID
++}
++
++enum PaymentStatus {
++  PENDING
++  PAID
++  FAILED
++  REFUNDED
++}
++
+ /// One AI Discovery Center conversation.
+ model DiscoverySession {
+   id        String   @id @default(cuid())
+   /// Short unguessable id used in URLs.
+   publicId  String   @unique
+-  /// Opaque per-browser token from an httpOnly cookie. Scopes the "recent
+-  /// sessions" list so one visitor never sees another visitor's conversations.
++  /// Opaque per-browser token from an httpOnly cookie. Predates Supabase
++  /// auth (see `userId`) and is kept only for sessions created before it
++  /// shipped; no longer trusted for access control on its own.
+   ownerToken String?
++  /// Supabase auth.users.id of the client who owns this session. Required
++  /// for every session created after auth shipped — the proxy rejects
++  /// anonymous access to /discovery and its APIs. Nullable only so
++  /// pre-existing anonymous rows do not violate the column on migrate.
++  userId    String?
+   title     String   @default("New Discovery")
+   createdAt DateTime @default(now())
+   updatedAt DateTime @updatedAt
+@@ -65,6 +88,7 @@ model DiscoverySession {
+ 
+   @@index([createdAt])
+   @@index([ownerToken, updatedAt])
++  @@index([userId, updatedAt])
+ }
+ 
+ model Message {
+@@ -126,10 +150,100 @@ model ProjectSummary {
+ 
+   createdAt DateTime @default(now())
+   leads     Lead[]
++  contracts Contract[]
++
++  /// AI-estimated range in whole cents, USD. Drafted by a cost-capped model
++  /// (see lib/ai/estimate.ts) and never shown to the client until a human
++  /// architect reviews and approves the contract it becomes part of.
++  estimatedLowCents  Int?
++  estimatedHighCents Int?
++  /// The AI's stated assumptions and reasoning for the range above — for the
++  /// reviewing architect, never rendered to the client.
++  estimateNotes      String? @db.Text
+ 
+   @@index([createdAt])
+ }
+ 
++/// A contract offer generated from a ProjectSummary: a frozen scope and
++/// price, a required human-review step, then client signature and deposit
++/// payment. See lib/contract.ts for how bodyText/bodyHash are produced.
++///
++/// This is a template a human approves before a client ever sees it, not a
++/// substitute for legal review of the contract language itself.
++model Contract {
++  id       String @id @default(cuid())
++  /// Short unguessable id used in the client-facing /contract/{id} URL.
++  publicId String @unique
++
++  /// Supabase auth.users.id of the client this contract is for.
++  userId String
++
++  sessionId String?
++  session   DiscoverySession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
++  summaryId String?
++  summary   ProjectSummary?   @relation(fields: [summaryId], references: [id], onDelete: SetNull)
++
++  clientName   String
++  clientEmail  String
++  projectTitle String
++
++  /// The exact scope text shown to the client — frozen at creation, never
++  /// silently edited afterward (bodyHash below detects any drift).
++  scopeText String @db.Text
++  /// The full rendered contract, frozen at the moment it is approved and
++  /// sent. A signature only ever attests to this exact text.
++  bodyText  String @db.Text
++  /// sha256 of bodyText at signing time, stored alongside the signature so a
++  /// dispute can prove exactly what was signed.
++  bodyHash  String?
++
++  currency     String @default("usd")
++  totalCents   Int
++  depositCents Int
++
++  status ContractStatus @default(PENDING_REVIEW)
++
++  reviewedAt DateTime?
++  /// Admin username (from ADMIN_USER Basic auth) who approved pricing and
++  /// released this contract to the client.
++  reviewedBy String?
++
++  signedAt        DateTime?
++  signerName      String?
++  signerIp        String?
++  signerUserAgent String?
++
++  payments Payment[]
++
++  createdAt DateTime @default(now())
++  updatedAt DateTime @updatedAt
++
++  @@index([userId])
++  @@index([status])
++}
++
++model Payment {
++  id         String   @id @default(cuid())
++  contractId String
++  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
++
++  provider               String @default("stripe")
++  /// Stripe Checkout Session id — unique so a re-POST of the same session
++  /// (e.g. a retried webhook) can never create a duplicate payment row.
++  stripeSessionId        String? @unique
++  stripePaymentIntentId  String?
++
++  amountCents Int
++  currency    String        @default("usd")
++  status      PaymentStatus @default(PENDING)
++
++  createdAt DateTime  @default(now())
++  paidAt    DateTime?
++
++  @@index([contractId])
++  @@index([status])
++}
++
+ /// A captured lead — from the summary form, contact cards, or a booking request.
+ model Lead {
+   id        String  @id @default(cuid())
+diff --git a/src/app/account/page.tsx b/src/app/account/page.tsx
+new file mode 100644
+index 0000000..0478f5a
+--- /dev/null
++++ b/src/app/account/page.tsx
+@@ -0,0 +1,41 @@
++import { notFound } from "next/navigation";
++import type { Metadata } from "next";
++import Link from "next/link";
++import { getCurrentUser } from "@/lib/session-user";
++import { Wordmark } from "@/components/SiteNav";
++import { SignOutButton } from "@/components/auth/SignOutButton";
++
++export const dynamic = "force-dynamic";
++
++export const metadata: Metadata = {
++  title: "Your Account",
++  robots: { index: false, follow: false },
++};
++
++export default async function AccountPage() {
++  const user = await getCurrentUser();
++  if (!user) notFound();
++
++  return (
++    <main className="min-h-screen flex items-center justify-center px-6 py-16">
++      <div className="w-full max-w-sm text-center">
++        <Wordmark className="text-2xl" />
++        <div className="glass rounded-2xl p-6 mt-8 text-left">
++          <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
++            Signed in as
++          </p>
++          <p className="text-sm font-semibold mb-6">{user.name ?? user.email}</p>
++          <div className="flex items-center gap-3">
++            <Link
++              href="/discovery"
++              className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full text-xs font-semibold hover:opacity-90 transition-opacity"
++            >
++              Go to Discovery Center
++            </Link>
++            <SignOutButton />
++          </div>
++        </div>
++      </div>
++    </main>
++  );
++}
+diff --git a/src/app/admin/contracts/page.tsx b/src/app/admin/contracts/page.tsx
+new file mode 100644
+index 0000000..2864a63
+--- /dev/null
++++ b/src/app/admin/contracts/page.tsx
+@@ -0,0 +1,154 @@
++import type { Metadata } from "next";
++import { prisma } from "@/lib/prisma";
++import { ContractApproveForm } from "@/components/admin/ContractApproveForm";
++
++export const dynamic = "force-dynamic";
++
++export const metadata: Metadata = {
++  title: "Contracts",
++  robots: { index: false, follow: false },
++};
++
++const FORMATTER = new Intl.DateTimeFormat("en-GB", {
++  timeZone: "UTC",
++  day: "2-digit",
++  month: "short",
++  year: "numeric",
++  hour: "2-digit",
++  minute: "2-digit",
++  hour12: false,
++});
++
++function money(cents: number): string {
++  return new Intl.NumberFormat("en-US", { style: "currency", currency: "usd" }).format(
++    cents / 100,
++  );
++}
++
++export default async function AdminContractsPage() {
++  const [pending, recent] = await Promise.all([
++    prisma.contract.findMany({
++      where: { status: "PENDING_REVIEW" },
++      orderBy: { createdAt: "asc" },
++      include: { summary: { select: { estimateNotes: true } } },
++    }),
++    prisma.contract.findMany({
++      where: { status: { in: ["SENT", "SIGNED"] } },
++      orderBy: { updatedAt: "desc" },
++      take: 50,
++      include: { payments: { where: { status: "PAID" }, take: 1 } },
++    }),
++  ]);
++
++  return (
++    <main id="main" className="min-h-screen bg-ink px-6 py-12">
++      <div className="max-w-6xl mx-auto">
++        <header className="mb-10">
++          <p className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-3">
++            Internal — not indexed
++          </p>
++          <h1 className="text-4xl font-black mb-2">Contracts</h1>
++          <p className="text-sm text-gray-500">
++            AI-drafted contracts wait here until a Senior Software Architect reviews
++            pricing and releases them. Nothing below is visible to a client until you
++            approve it.
++          </p>
++        </header>
++
++        <section className="mb-12">
++          <h2 className="text-lg font-bold mb-4">
++            Pending Review{" "}
++            <span className="text-sm font-normal text-gray-500">
++              ({pending.length})
++            </span>
++          </h2>
++          {pending.length === 0 ? (
++            <p className="text-sm text-gray-500">Nothing waiting on review.</p>
++          ) : (
++            <div className="space-y-4">
++              {pending.map((contract) => (
++                <div key={contract.id} className="glass-card rounded-hex p-6">
++                  <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
++                    <div>
++                      <p className="font-semibold">{contract.projectTitle}</p>
++                      <p className="text-xs text-gray-500">
++                        {contract.clientName} · {contract.clientEmail}
++                      </p>
++                      <p className="text-xs text-gray-600 mt-1">
++                        Drafted {FORMATTER.format(contract.createdAt)} UTC
++                      </p>
++                    </div>
++                    <span className="text-xs px-3 py-1 rounded-full border border-amber-500/30 bg-amber-950/40 text-amber-300">
++                      AI-priced · unreviewed
++                    </span>
++                  </div>
++
++                  <details className="mb-4">
++                    <summary className="text-xs text-blue-400 cursor-pointer">
++                      Scope & AI reasoning
++                    </summary>
++                    <p className="text-xs text-gray-400 mt-2 whitespace-pre-wrap">
++                      {contract.scopeText}
++                    </p>
++                    {contract.summary?.estimateNotes && (
++                      <p className="text-xs text-gray-500 mt-3 border-t border-white/10 pt-3">
++                        <strong className="text-gray-400">AI notes:</strong>{" "}
++                        {contract.summary.estimateNotes}
++                      </p>
++                    )}
++                  </details>
++
++                  <ContractApproveForm
++                    contractId={contract.id}
++                    defaultTotalCents={contract.totalCents}
++                    defaultDepositCents={contract.depositCents}
++                  />
++                </div>
++              ))}
++            </div>
++          )}
++        </section>
++
++        <section>
++          <h2 className="text-lg font-bold mb-4">Sent & Signed</h2>
++          {recent.length === 0 ? (
++            <p className="text-sm text-gray-500">Nothing sent yet.</p>
++          ) : (
++            <div className="overflow-x-auto">
++              <table className="w-full text-sm">
++                <thead>
++                  <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 border-b border-white/10">
++                    <th className="py-2 pr-4">Client</th>
++                    <th className="py-2 pr-4">Project</th>
++                    <th className="py-2 pr-4">Total</th>
++                    <th className="py-2 pr-4">Deposit</th>
++                    <th className="py-2 pr-4">Status</th>
++                    <th className="py-2 pr-4">Paid</th>
++                  </tr>
++                </thead>
++                <tbody>
++                  {recent.map((contract) => (
++                    <tr key={contract.id} className="border-b border-white/5">
++                      <td className="py-2 pr-4">{contract.clientName}</td>
++                      <td className="py-2 pr-4">{contract.projectTitle}</td>
++                      <td className="py-2 pr-4">{money(contract.totalCents)}</td>
++                      <td className="py-2 pr-4">{money(contract.depositCents)}</td>
++                      <td className="py-2 pr-4">{contract.status}</td>
++                      <td className="py-2 pr-4">
++                        {contract.payments.length > 0 ? (
++                          <span className="text-emerald-400">Yes</span>
++                        ) : (
++                          <span className="text-gray-600">No</span>
++                        )}
++                      </td>
++                    </tr>
++                  ))}
++                </tbody>
++              </table>
++            </div>
++          )}
++        </section>
++      </div>
++    </main>
++  );
++}
+diff --git a/src/app/api/admin/contracts/[id]/approve/route.ts b/src/app/api/admin/contracts/[id]/approve/route.ts
+new file mode 100644
+index 0000000..1835b85
+--- /dev/null
++++ b/src/app/api/admin/contracts/[id]/approve/route.ts
+@@ -0,0 +1,84 @@
++import { z } from "zod";
++import { prisma } from "@/lib/prisma";
++import { isAuthorized, unauthorizedResponse } from "@/lib/auth";
++import { renderContractBody, hashContractBody } from "@/lib/contract";
++
++/**
++ * The human-review step: an architect approves (optionally adjusting) the
++ * AI-drafted price and releases a PENDING_REVIEW contract to the client.
++ * Nothing before this point is ever visible outside /admin — see the note
++ * at the top of api/contracts/route.ts for why this gate exists at all.
++ */
++
++const Approve = z.object({
++  totalCents: z.number().int().positive().optional(),
++  depositCents: z.number().int().nonnegative().optional(),
++});
++
++export async function POST(
++  request: Request,
++  context: RouteContext<"/api/admin/contracts/[id]/approve">,
++) {
++  // Defence in depth: the proxy already guards /api/admin, but a matcher
++  // change or a direct internal call must not bypass the check.
++  if (!isAuthorized(request)) return unauthorizedResponse();
++
++  const { id } = await context.params;
++  const parsed = Approve.safeParse(await request.json().catch(() => ({})));
++  if (!parsed.success) {
++    return Response.json({ error: "Invalid request." }, { status: 400 });
++  }
++
++  const contract = await prisma.contract.findUnique({ where: { id } });
++  if (!contract) {
++    return Response.json({ error: "Contract not found." }, { status: 404 });
++  }
++  if (contract.status !== "PENDING_REVIEW") {
++    return Response.json(
++      { error: `Contract is already ${contract.status.toLowerCase()}.` },
++      { status: 409 },
++    );
++  }
++
++  const totalCents = parsed.data.totalCents ?? contract.totalCents;
++  const depositCents = parsed.data.depositCents ?? contract.depositCents;
++  if (depositCents > totalCents) {
++    return Response.json(
++      { error: "Deposit cannot exceed the total fee." },
++      { status: 400 },
++    );
++  }
++
++  // Re-render so the price the client actually sees always matches the
++  // numbers stored on the row — an override that only touched the database
++  // columns, leaving the prose contract text quoting the old figures, is
++  // exactly the kind of inconsistency this template exists to prevent.
++  const bodyText = renderContractBody({
++    clientName: contract.clientName,
++    clientEmail: contract.clientEmail,
++    projectTitle: contract.projectTitle,
++    scopeText: contract.scopeText,
++    totalCents,
++    depositCents,
++    currency: contract.currency,
++  });
++
++  const updated = await prisma.contract.update({
++    where: { id },
++    data: {
++      totalCents,
++      depositCents,
++      bodyText,
++      bodyHash: hashContractBody(bodyText),
++      status: "SENT",
++      reviewedAt: new Date(),
++      reviewedBy: process.env.ADMIN_USER || "admin",
++    },
++    select: { id: true, publicId: true, status: true },
++  });
++
++  return Response.json(
++    { ok: true, contract: updated },
++    { headers: { "Cache-Control": "no-store" } },
++  );
++}
+diff --git a/src/app/api/chat/route.ts b/src/app/api/chat/route.ts
+index b6879bf..4949260 100644
+--- a/src/app/api/chat/route.ts
++++ b/src/app/api/chat/route.ts
+@@ -5,6 +5,7 @@ import { ARCHITECT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
+ import { extractAnalysis } from "@/lib/ai/analysis";
+ import { prisma } from "@/lib/prisma";
+ import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
++import { getCurrentUser } from "@/lib/session-user";
+ 
+ export const maxDuration = 120;
+ 
+@@ -59,13 +60,22 @@ export async function POST(request: Request) {
+     );
+   }
+ 
++  // Defence in depth — the proxy already requires a signed-in user here.
++  // Without this check (and the ownership comparison below), any signed-in
++  // client could POST into any other client's session just by knowing its
++  // publicId, which is exactly the leak this whole feature exists to close.
++  const user = await getCurrentUser();
++  if (!user) return Response.json({ error: "Sign in required." }, { status: 401 });
++
+   const { sessionId, attachmentIds, resume } = parsed.data;
+ 
+   const session = await prisma.discoverySession.findUnique({
+     where: { publicId: sessionId },
+     include: { messages: { orderBy: { createdAt: "asc" } } },
+   });
+-  if (!session) {
++  // "Not found" either way — a session that exists but belongs to someone
++  // else must not be distinguishable from one that doesn't exist.
++  if (!session || session.userId !== user.id) {
+     return Response.json({ error: "Session not found" }, { status: 404 });
+   }
+ 
+diff --git a/src/app/api/contracts/[id]/checkout/route.ts b/src/app/api/contracts/[id]/checkout/route.ts
+new file mode 100644
+index 0000000..2bb9620
+--- /dev/null
++++ b/src/app/api/contracts/[id]/checkout/route.ts
+@@ -0,0 +1,101 @@
++import { prisma } from "@/lib/prisma";
++import { getCurrentUser } from "@/lib/session-user";
++import { stripe, hasStripeCredentials } from "@/lib/stripe";
++import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
++
++/**
++ * Creates a Stripe Checkout Session for the signed contract's deposit and
++ * returns its URL for the browser to redirect to. Payment is confirmed only
++ * by the webhook (api/webhooks/stripe) — never by the browser returning to
++ * the success URL, which a client could reach without ever actually paying.
++ */
++export async function POST(
++  request: Request,
++  context: RouteContext<"/api/contracts/[id]/checkout">,
++) {
++  const limit = rateLimit(clientKey(request, "contract-checkout"), {
++    limit: 10,
++    windowMs: 60_000,
++  });
++  if (!limit.ok) {
++    return tooManyRequests(limit, "Too many attempts. Try again shortly.");
++  }
++
++  if (!hasStripeCredentials()) {
++    return Response.json(
++      { error: "Payments are not configured (STRIPE_SECRET_KEY)." },
++      { status: 503 },
++    );
++  }
++
++  const user = await getCurrentUser();
++  if (!user) return Response.json({ error: "Sign in required." }, { status: 401 });
++
++  const { id } = await context.params;
++  const contract = await prisma.contract.findUnique({
++    where: { publicId: id },
++    include: {
++      payments: { where: { status: "PAID" }, take: 1 },
++    },
++  });
++  if (!contract || contract.userId !== user.id) {
++    return Response.json({ error: "Contract not found." }, { status: 404 });
++  }
++  if (contract.status !== "SIGNED") {
++    return Response.json(
++      { error: "Sign the contract before paying the deposit." },
++      { status: 409 },
++    );
++  }
++  if (contract.payments.length > 0) {
++    return Response.json({ error: "The deposit is already paid." }, { status: 409 });
++  }
++
++  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
++
++  try {
++    const checkoutSession = await stripe().checkout.sessions.create({
++      mode: "payment",
++      customer_email: contract.clientEmail || undefined,
++      line_items: [
++        {
++          quantity: 1,
++          price_data: {
++            currency: contract.currency,
++            unit_amount: contract.depositCents,
++            product_data: {
++              name: `Deposit — ${contract.projectTitle}`,
++              description:
++                "50% project deposit, per the signed SoftwarePros services agreement.",
++            },
++          },
++        },
++      ],
++      success_url: `${siteUrl}/contract/${contract.publicId}?paid=1`,
++      cancel_url: `${siteUrl}/contract/${contract.publicId}`,
++      metadata: { contractId: contract.id },
++    });
++
++    if (!checkoutSession.url) {
++      throw new Error("Stripe did not return a Checkout URL.");
++    }
++
++    await prisma.payment.create({
++      data: {
++        contractId: contract.id,
++        stripeSessionId: checkoutSession.id,
++        amountCents: contract.depositCents,
++        currency: contract.currency,
++        status: "PENDING",
++      },
++    });
++
++    return Response.json({ url: checkoutSession.url }, { status: 201 });
++  } catch (error) {
++    console.error("[contracts] checkout session creation failed", error);
++    return Response.json(
++      { error: "Could not start checkout. Please try again." },
++      { status: 502 },
++    );
++  }
++}
+diff --git a/src/app/api/contracts/[id]/sign/route.ts b/src/app/api/contracts/[id]/sign/route.ts
+new file mode 100644
+index 0000000..af98f64
+--- /dev/null
++++ b/src/app/api/contracts/[id]/sign/route.ts
+@@ -0,0 +1,82 @@
++import { z } from "zod";
++import { prisma } from "@/lib/prisma";
++import { getCurrentUser } from "@/lib/session-user";
++import { hashContractBody } from "@/lib/contract";
++import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
++
++/**
++ * Records a click-to-sign: the client's typed name, the exact time, their
++ * IP and user agent, alongside a hash of the exact contract text they saw.
++ *
++ * This is a lightweight signature, not a certified e-signature platform —
++ * there is no independent third-party audit trail the way DocuSign or
++ * similar would provide. Reasonable for most small services agreements, but
++ * SoftwarePros should have counsel confirm that's true for how this
++ * business actually uses it before relying on it for a disputed contract.
++ */
++
++const Sign = z.object({ signerName: z.string().trim().min(1).max(200) });
++
++export async function POST(
++  request: Request,
++  context: RouteContext<"/api/contracts/[id]/sign">,
++) {
++  const limit = rateLimit(clientKey(request, "contract-sign"), {
++    limit: 10,
++    windowMs: 60_000,
++  });
++  if (!limit.ok) {
++    return tooManyRequests(limit, "Too many attempts. Try again shortly.");
++  }
++
++  const user = await getCurrentUser();
++  if (!user) return Response.json({ error: "Sign in required." }, { status: 401 });
++
++  const { id } = await context.params;
++  const parsed = Sign.safeParse(await request.json().catch(() => null));
++  if (!parsed.success) {
++    return Response.json({ error: "A typed name is required." }, { status: 400 });
++  }
++
++  const contract = await prisma.contract.findUnique({ where: { publicId: id } });
++  if (!contract || contract.userId !== user.id) {
++    return Response.json({ error: "Contract not found." }, { status: 404 });
++  }
++  if (contract.status === "SIGNED") {
++    return Response.json({ error: "This contract is already signed." }, { status: 409 });
++  }
++  if (contract.status !== "SENT") {
++    return Response.json(
++      { error: "This contract is not yet available to sign." },
++      { status: 409 },
++    );
++  }
++
++  // The text a signature attests to must be exactly the text last approved
++  // — if these ever diverge (they shouldn't), refuse rather than silently
++  // let a signature bind to different words than what was recorded.
++  if (hashContractBody(contract.bodyText) !== contract.bodyHash) {
++    console.error(`[contracts] body/hash mismatch on sign, contract ${contract.id}`);
++    return Response.json(
++      { error: "This contract could not be verified. Contact SoftwarePros." },
++      { status: 409 },
++    );
++  }
++
++  const forwarded = request.headers.get("x-forwarded-for");
++  const signerIp = forwarded?.split(",")[0]?.trim() || null;
++
++  const updated = await prisma.contract.update({
++    where: { id: contract.id },
++    data: {
++      status: "SIGNED",
++      signedAt: new Date(),
++      signerName: parsed.data.signerName,
++      signerIp,
++      signerUserAgent: request.headers.get("user-agent"),
++    },
++    select: { publicId: true, status: true },
++  });
++
++  return Response.json({ ok: true, contract: updated });
++}
+diff --git a/src/app/api/contracts/route.ts b/src/app/api/contracts/route.ts
+new file mode 100644
+index 0000000..e57c885
+--- /dev/null
++++ b/src/app/api/contracts/route.ts
+@@ -0,0 +1,171 @@
++import { z } from "zod";
++import { prisma } from "@/lib/prisma";
++import { publicId } from "@/lib/ids";
++import { getCurrentUser } from "@/lib/session-user";
++import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
++import { renderContractBody, hashContractBody } from "@/lib/contract";
++import { estimateProjectCost } from "@/lib/ai/estimate";
++import type { Summary } from "@/lib/ai/schemas";
++
++/**
++ * Drafts a contract from a project summary — priced from the AI's cost
++ * estimate, but never sent to a client until a human architect reviews and
++ * releases it (see api/admin/contracts/[id]/approve). This is deliberate:
++ * the existing AI Architect prompts (lib/ai/prompts.ts) are written to never
++ * quote a price precisely because an unreviewed AI number becoming a signed,
++ * paid, binding commitment is a real business and legal risk, not a
++ * hypothetical one. This endpoint is the one place that gets a price
++ * attached to real money — it stays gated behind PENDING_REVIEW on purpose.
++ */
++
++const CreateContract = z.object({ summaryId: z.string().min(1) });
++
++export async function POST(request: Request) {
++  const limit = rateLimit(clientKey(request, "contracts"), {
++    limit: 10,
++    windowMs: 60_000,
++  });
++  if (!limit.ok) {
++    return tooManyRequests(limit, "Too many contract requests. Try again shortly.");
++  }
++
++  const parsed = CreateContract.safeParse(await request.json().catch(() => null));
++  if (!parsed.success) {
++    return Response.json({ error: "Invalid request" }, { status: 400 });
++  }
++
++  const user = await getCurrentUser();
++  if (!user) return Response.json({ error: "Sign in required." }, { status: 401 });
++
++  const summary = await prisma.projectSummary.findUnique({
++    where: { publicId: parsed.data.summaryId },
++    include: { session: true },
++  });
++  if (!summary || summary.session.userId !== user.id) {
++    return Response.json({ error: "Summary not found" }, { status: 404 });
++  }
++
++  let lowCents = summary.estimatedLowCents;
++  let highCents = summary.estimatedHighCents;
++
++  // The estimate is normally drafted alongside the summary (api/summary).
++  // If that earlier call failed, retry once here rather than blocking the
++  // client on a transient AI error from a step they already completed.
++  if (lowCents == null || highCents == null) {
++    try {
++      const reconstructed = {
++        title: summary.title,
++        description: summary.description,
++        industry: summary.industry,
++        complexity: summary.complexity,
++        nextStep: summary.nextStep,
++        components: summary.components,
++        requirements: summary.requirements,
++        techStack: summary.techStack,
++        phases: summary.phases,
++        modules: summary.modules,
++      } as unknown as Summary;
++      const estimate = await estimateProjectCost(reconstructed);
++      lowCents = estimate.lowCents;
++      highCents = estimate.highCents;
++      await prisma.projectSummary.update({
++        where: { id: summary.id },
++        data: {
++          estimatedLowCents: lowCents,
++          estimatedHighCents: highCents,
++          estimateNotes: estimate.notes,
++        },
++      });
++    } catch (error) {
++      console.error("[contracts] estimate retry failed", error);
++      return Response.json(
++        {
++          error:
++            "Could not draft a cost estimate for this project. Try again shortly.",
++        },
++        { status: 502 },
++      );
++    }
++  }
++
++  const totalCents = roundToWholeDollar((lowCents + highCents) / 2);
++  const depositCents = roundToWholeDollar(totalCents / 2);
++
++  const clientName = user.name ?? user.email ?? "Client";
++  const clientEmail = user.email ?? "";
++  const scopeText = buildScopeText(summary);
++  const bodyText = renderContractBody({
++    clientName,
++    clientEmail,
++    projectTitle: summary.title,
++    scopeText,
++    totalCents,
++    depositCents,
++    currency: "usd",
++  });
++
++  const created = await prisma.contract.create({
++    data: {
++      publicId: publicId(),
++      userId: user.id,
++      sessionId: summary.sessionId,
++      summaryId: summary.id,
++      clientName,
++      clientEmail,
++      projectTitle: summary.title,
++      scopeText,
++      bodyText,
++      bodyHash: hashContractBody(bodyText),
++      totalCents,
++      depositCents,
++      status: "PENDING_REVIEW",
++    },
++    select: { publicId: true },
++  });
++
++  return Response.json({ publicId: created.publicId }, { status: 201 });
++}
++
++function roundToWholeDollar(cents: number): number {
++  return Math.max(0, Math.round(cents / 100) * 100);
++}
++
++function buildScopeText(summary: {
++  description: string;
++  modules: unknown;
++  requirements: unknown;
++}): string {
++  const modules = Array.isArray(summary.modules)
++    ? summary.modules.filter((m): m is string => typeof m === "string")
++    : [];
++
++  const requirementLines: string[] = [];
++  if (
++    typeof summary.requirements === "object" &&
++    summary.requirements !== null &&
++    !Array.isArray(summary.requirements)
++  ) {
++    const groups = summary.requirements as Record<string, unknown>;
++    for (const key of ["functional", "nonFunctional", "aiOpportunities"]) {
++      const items = groups[key];
++      if (!Array.isArray(items)) continue;
++      for (const item of items) {
++        if (
++          typeof item === "object" &&
++          item !== null &&
++          "text" in item &&
++          typeof (item as { text: unknown }).text === "string"
++        ) {
++          requirementLines.push(`- ${(item as { text: string }).text}`);
++        }
++      }
++    }
++  }
++
++  const parts = [summary.description];
++  if (modules.length) parts.push(`Modules: ${modules.join(", ")}.`);
++  if (requirementLines.length) {
++    parts.push(`Key requirements:\n${requirementLines.join("\n")}`);
++  }
++  return parts.join("\n\n");
++}
+diff --git a/src/app/api/sessions/route.ts b/src/app/api/sessions/route.ts
+index d328809..d14adc7 100644
+--- a/src/app/api/sessions/route.ts
++++ b/src/app/api/sessions/route.ts
+@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
+ import { z } from "zod";
+ import { prisma } from "@/lib/prisma";
+ import { publicId } from "@/lib/ids";
+-import { ensureOwnerToken, readOwnerToken } from "@/lib/session-owner";
++import { ensureOwnerToken } from "@/lib/session-owner";
+ import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+ import { logDbFailure } from "@/lib/db-errors";
++import { getCurrentUser } from "@/lib/session-user";
+ 
+ const CreateSession = z.object({
+   message: z.string().trim().max(20_000).optional(),
+@@ -32,6 +33,12 @@ export async function POST(request: Request) {
+     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+   }
+ 
++  // Defence in depth — the proxy already requires a signed-in user here.
++  const user = await getCurrentUser();
++  if (!user) {
++    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
++  }
++
+   const message = parsed.data.message?.trim();
+   const ownerToken = await ensureOwnerToken();
+ 
+@@ -40,6 +47,7 @@ export async function POST(request: Request) {
+       data: {
+         publicId: publicId(),
+         ownerToken,
++        userId: user.id,
+         title: message ? message.slice(0, 60) : "New Discovery",
+         messages: message
+           ? { create: [{ role: "USER", content: message }] }
+@@ -66,15 +74,16 @@ export async function POST(request: Request) {
+ }
+ 
+ /**
+- * Recent sessions for the discovery sidebar — scoped to the calling browser.
+- * Without the owner filter this would expose every visitor's conversations.
++ * Recent sessions for the discovery sidebar — scoped to the signed-in
++ * client. Without the userId filter this would expose every client's
++ * conversations to every other client.
+  */
+ export async function GET() {
+-  const ownerToken = await readOwnerToken();
+-  if (!ownerToken) return NextResponse.json({ sessions: [] });
++  const user = await getCurrentUser();
++  if (!user) return NextResponse.json({ sessions: [] });
+ 
+   try {
+-    return NextResponse.json({ sessions: await recentSessions(ownerToken) });
++    return NextResponse.json({ sessions: await recentSessions(user.id) });
+   } catch (error) {
+     // The sidebar's session history is a convenience, not the feature. If the
+     // database is unreachable, an empty list degrades gracefully; failing the
+@@ -84,9 +93,9 @@ export async function GET() {
+   }
+ }
+ 
+-function recentSessions(ownerToken: string) {
++function recentSessions(userId: string) {
+   return prisma.discoverySession.findMany({
+-    where: { ownerToken },
++    where: { userId },
+     orderBy: { updatedAt: "desc" },
+     take: 12,
+     select: {
+diff --git a/src/app/api/summary/route.ts b/src/app/api/summary/route.ts
+index 24f62f6..410b32d 100644
+--- a/src/app/api/summary/route.ts
++++ b/src/app/api/summary/route.ts
+@@ -1,9 +1,11 @@
+ import { z } from "zod";
+ import { prisma } from "@/lib/prisma";
+ import { generateSummary } from "@/lib/ai/analysis";
++import { estimateProjectCost } from "@/lib/ai/estimate";
+ import { hasAnthropicCredentials } from "@/lib/ai/client";
+ import { publicId } from "@/lib/ids";
+ import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
++import { getCurrentUser } from "@/lib/session-user";
+ 
+ export const maxDuration = 300;
+ 
+@@ -33,11 +35,20 @@ export async function POST(request: Request) {
+     );
+   }
+ 
++  // The proxy already requires a signed-in user for this path; this is the
++  // defence-in-depth check plus the actual ownership check the proxy can't
++  // do on its own (see api/admin/leads/[id]/route.ts for the same pattern).
++  const user = await getCurrentUser();
++  if (!user) return Response.json({ error: "Sign in required." }, { status: 401 });
++
+   const session = await prisma.discoverySession.findUnique({
+     where: { publicId: parsed.data.sessionId },
+     include: { messages: { orderBy: { createdAt: "asc" } } },
+   });
+-  if (!session) {
++  // Reports "not found" rather than "forbidden" either way — a session that
++  // exists but belongs to someone else must not be distinguishable from one
++  // that doesn't exist at all.
++  if (!session || session.userId !== user.id) {
+     return Response.json({ error: "Session not found" }, { status: 404 });
+   }
+   if (session.messages.length < 2) {
+@@ -55,6 +66,16 @@ export async function POST(request: Request) {
+       session.messages.map((m) => ({ role: m.role, content: m.content })),
+     );
+ 
++    // Best-effort: a cost-draft failure must never block the summary itself.
++    // The contract flow re-checks for a missing estimate and refuses to
++    // proceed rather than silently defaulting to $0 — see api/contracts.
++    let estimate: { lowCents: number; highCents: number; notes: string } | null = null;
++    try {
++      estimate = await estimateProjectCost(summary);
++    } catch (error) {
++      console.error("[summary] cost estimate failed", error);
++    }
++
+     const created = await prisma.projectSummary.create({
+       data: {
+         publicId: publicId(),
+@@ -70,6 +91,9 @@ export async function POST(request: Request) {
+         techStack: summary.techStack,
+         phases: summary.phases,
+         modules: summary.modules,
++        estimatedLowCents: estimate?.lowCents,
++        estimatedHighCents: estimate?.highCents,
++        estimateNotes: estimate?.notes,
+       },
+       select: { publicId: true },
+     });
+diff --git a/src/app/api/upload/route.ts b/src/app/api/upload/route.ts
+index fe7a494..fce0e96 100644
+--- a/src/app/api/upload/route.ts
++++ b/src/app/api/upload/route.ts
+@@ -1,5 +1,6 @@
+ import { prisma } from "@/lib/prisma";
+ import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
++import { getCurrentUser } from "@/lib/session-user";
+ 
+ export const maxDuration = 60;
+ 
+@@ -57,11 +58,14 @@ export async function POST(request: Request) {
+     );
+   }
+ 
++  const user = await getCurrentUser();
++  if (!user) return Response.json({ error: "Sign in required." }, { status: 401 });
++
+   const session = await prisma.discoverySession.findUnique({
+     where: { publicId: sessionPublicId },
+-    select: { id: true },
++    select: { id: true, userId: true },
+   });
+-  if (!session) {
++  if (!session || session.userId !== user.id) {
+     return Response.json({ error: "Session not found" }, { status: 404 });
+   }
+ 
+diff --git a/src/app/api/webhooks/stripe/route.ts b/src/app/api/webhooks/stripe/route.ts
+new file mode 100644
+index 0000000..6854407
+--- /dev/null
++++ b/src/app/api/webhooks/stripe/route.ts
+@@ -0,0 +1,70 @@
++import { prisma } from "@/lib/prisma";
++import { stripe } from "@/lib/stripe";
++import type Stripe from "stripe";
++
++/**
++ * Stripe calls this directly — it is deliberately outside the Supabase-auth
++ * gate in proxy.ts (see AUTH_REQUIRED_API_PREFIXES there) and authenticates
++ * the caller by verifying Stripe's signature instead of a session cookie.
++ * This is the ONLY place a Payment (and therefore a contract's deposit) is
++ * ever marked PAID — never the browser returning to the Checkout success
++ * URL, which proves nothing about whether money actually moved.
++ */
++export async function POST(request: Request) {
++  const secret = process.env.STRIPE_WEBHOOK_SECRET;
++  if (!secret) {
++    console.error("[webhooks:stripe] STRIPE_WEBHOOK_SECRET is not set.");
++    return Response.json({ error: "Not configured." }, { status: 503 });
++  }
++
++  const signature = request.headers.get("stripe-signature");
++  if (!signature) {
++    return Response.json({ error: "Missing signature." }, { status: 400 });
++  }
++
++  // Signature verification needs the exact raw bytes Stripe signed — never
++  // request.json() first, which would re-serialize the body and break it.
++  const rawBody = await request.text();
++
++  let event: Stripe.Event;
++  try {
++    event = stripe().webhooks.constructEvent(rawBody, signature, secret);
++  } catch (error) {
++    console.error("[webhooks:stripe] signature verification failed", error);
++    return Response.json({ error: "Invalid signature." }, { status: 400 });
++  }
++
++  if (event.type === "checkout.session.completed") {
++    const session = event.data.object as Stripe.Checkout.Session;
++    await markPaid(session);
++  }
++
++  return Response.json({ received: true });
++}
++
++async function markPaid(session: Stripe.Checkout.Session) {
++  const payment = await prisma.payment.findUnique({
++    where: { stripeSessionId: session.id },
++  });
++  if (!payment) {
++    // Not necessarily an error — could be a Checkout Session this app never
++    // created. Log it either way so a mismatch doesn't disappear silently.
++    console.error(`[webhooks:stripe] no Payment row for session ${session.id}`);
++    return;
++  }
++  // Webhooks can be delivered more than once — this makes a re-delivery a
++  // no-op instead of double-processing a payment.
++  if (payment.status === "PAID") return;
++
++  await prisma.payment.update({
++    where: { id: payment.id },
++    data: {
++      status: "PAID",
++      paidAt: new Date(),
++      stripePaymentIntentId:
++        typeof session.payment_intent === "string"
++          ? session.payment_intent
++          : (session.payment_intent?.id ?? null),
++    },
++  });
++}
+diff --git a/src/app/contract/[publicId]/page.tsx b/src/app/contract/[publicId]/page.tsx
+new file mode 100644
+index 0000000..e57c1d2
+--- /dev/null
++++ b/src/app/contract/[publicId]/page.tsx
+@@ -0,0 +1,87 @@
++import { notFound } from "next/navigation";
++import type { Metadata } from "next";
++import { prisma } from "@/lib/prisma";
++import { getCurrentUser } from "@/lib/session-user";
++import { Wordmark } from "@/components/SiteNav";
++import { ContractView } from "@/components/contract/ContractView";
++import { Icon } from "@/components/Icon";
++
++export const dynamic = "force-dynamic";
++
++export const metadata: Metadata = {
++  title: "Your Contract",
++  robots: { index: false, follow: false },
++};
++
++export default async function ContractPage({
++  params,
++}: PageProps<"/contract/[publicId]">) {
++  const { publicId } = await params;
++
++  const user = await getCurrentUser();
++  if (!user) notFound();
++
++  const contract = await prisma.contract.findUnique({
++    where: { publicId },
++    include: { payments: { where: { status: "PAID" }, take: 1 } },
++  });
++
++  // "Not found" either way — a contract that exists but belongs to someone
++  // else, or one still PENDING_REVIEW and not yet released, must look
++  // identical from the outside to one that doesn't exist.
++  if (!contract || contract.userId !== user.id) notFound();
++
++  return (
++    <>
++      <nav
++        aria-label="Contract"
++        className="sticky top-0 w-full z-50 px-6 py-4 flex items-center gap-4 bg-ink/90 backdrop-blur-md border-b border-white/5"
++      >
++        <Wordmark />
++        <span className="h-4 w-px bg-white/10" aria-hidden="true" />
++        <span className="text-sm text-gray-400">{contract.projectTitle}</span>
++      </nav>
++
++      <main className="max-w-3xl mx-auto px-6 py-10">
++        {contract.status === "PENDING_REVIEW" && (
++          <div className="glass rounded-2xl p-8 text-center">
++            <Icon name="hourglass-half" className="text-2xl text-blue-400 mb-4" />
++            <h1 className="text-2xl font-bold mb-2">Your Contract Is Being Finalized</h1>
++            <p className="text-sm text-gray-400 max-w-md mx-auto">
++              A SoftwarePros Senior Software Architect is reviewing your project scope
++              and pricing. We&apos;ll email you at {contract.clientEmail} the moment
++              it&apos;s ready to sign.
++            </p>
++          </div>
++        )}
++
++        {contract.status === "VOID" && (
++          <div className="glass rounded-2xl p-8 text-center">
++            <h1 className="text-2xl font-bold mb-2">This Contract Is No Longer Available</h1>
++            <p className="text-sm text-gray-400">
++              Contact SoftwarePros if you believe this is a mistake.
++            </p>
++          </div>
++        )}
++
++        {(contract.status === "SENT" || contract.status === "SIGNED") && (
++          <>
++            <header className="mb-6">
++              <h1 className="text-2xl font-bold mb-1">{contract.projectTitle}</h1>
++              <p className="text-sm text-gray-500">
++                Prepared for {contract.clientName} · {contract.clientEmail}
++              </p>
++            </header>
++            <ContractView
++              contractId={contract.publicId}
++              bodyText={contract.bodyText}
++              status={contract.status}
++              signerNameDefault={contract.clientName}
++              paid={contract.payments.length > 0}
++            />
++          </>
++        )}
++      </main>
++    </>
++  );
++}
+diff --git a/src/app/discovery/[id]/page.tsx b/src/app/discovery/[id]/page.tsx
+index 4b30d20..28066a9 100644
+--- a/src/app/discovery/[id]/page.tsx
++++ b/src/app/discovery/[id]/page.tsx
+@@ -1,7 +1,7 @@
+ import { notFound } from "next/navigation";
+ import type { Metadata } from "next";
+ import { prisma } from "@/lib/prisma";
+-import { readOwnerToken } from "@/lib/session-owner";
++import { getCurrentUser } from "@/lib/session-user";
+ import { DiscoveryWorkspace } from "@/components/discovery/DiscoveryWorkspace";
+ import type { SessionAnalysis, ChatMessage } from "@/components/discovery/types";
+ 
+@@ -26,6 +26,13 @@ export default async function DiscoverySessionPage({
+   const { id } = await params;
+   const { mode } = await searchParams;
+ 
++  // The proxy already requires a signed-in user for /discovery/*; this is
++  // the ownership check it can't do on its own. Without it, any signed-in
++  // client who obtains another client's session link (forwarded, leaked,
++  // guessed) could read their entire AI Architect conversation.
++  const user = await getCurrentUser();
++  if (!user) notFound();
++
+   const session = await prisma.discoverySession.findUnique({
+     where: { publicId: id },
+     include: {
+@@ -35,19 +42,17 @@ export default async function DiscoverySessionPage({
+     },
+   });
+ 
+-  if (!session) notFound();
++  // Reports "not found" rather than "forbidden" either way — a session that
++  // exists but belongs to someone else must not be distinguishable from one
++  // that doesn't exist at all.
++  if (!session || session.userId !== user.id) notFound();
+ 
+-  // Scoped to this browser's owner token — the sidebar must never surface
+-  // another visitor's conversations.
+-  const ownerToken = await readOwnerToken();
+-  const recent = ownerToken
+-    ? await prisma.discoverySession.findMany({
+-        where: { ownerToken, messages: { some: {} } },
+-        orderBy: { updatedAt: "desc" },
+-        take: 8,
+-        select: { publicId: true, title: true, industry: true, updatedAt: true },
+-      })
+-    : [];
++  const recent = await prisma.discoverySession.findMany({
++    where: { userId: user.id, messages: { some: {} } },
++    orderBy: { updatedAt: "desc" },
++    take: 8,
++    select: { publicId: true, title: true, industry: true, updatedAt: true },
++  });
+ 
+   const analysis: SessionAnalysis = {
+     industry: session.industry,
+diff --git a/src/app/login/page.tsx b/src/app/login/page.tsx
+new file mode 100644
+index 0000000..8043b44
+--- /dev/null
++++ b/src/app/login/page.tsx
+@@ -0,0 +1,34 @@
++import type { Metadata } from "next";
++import { Wordmark } from "@/components/SiteNav";
++import { LoginForm } from "@/components/auth/LoginForm";
++
++export const metadata: Metadata = {
++  title: "Sign In",
++  robots: { index: false, follow: false },
++};
++
++/** Only ever a same-site path — an unsanitized redirect target is an open redirect. */
++function safeRedirect(value: string | undefined): string {
++  if (!value) return "/discovery";
++  if (!value.startsWith("/") || value.startsWith("//")) return "/discovery";
++  return value;
++}
++
++export default async function LoginPage({ searchParams }: PageProps<"/login">) {
++  const { redirect } = await searchParams;
++  const redirectTo = safeRedirect(typeof redirect === "string" ? redirect : undefined);
++
++  return (
++    <main className="min-h-screen flex items-center justify-center px-6 py-16">
++      <div className="w-full max-w-sm">
++        <div className="text-center mb-8">
++          <Wordmark className="text-2xl" />
++          <p className="text-sm text-gray-400 mt-3">
++            Sign in to continue your AI Discovery Center conversation.
++          </p>
++        </div>
++        <LoginForm redirectTo={redirectTo} />
++      </div>
++    </main>
++  );
++}
+diff --git a/src/app/signup/page.tsx b/src/app/signup/page.tsx
+new file mode 100644
+index 0000000..a95e0cb
+--- /dev/null
++++ b/src/app/signup/page.tsx
+@@ -0,0 +1,37 @@
++import type { Metadata } from "next";
++import { Wordmark } from "@/components/SiteNav";
++import { SignupForm } from "@/components/auth/SignupForm";
++
++export const metadata: Metadata = {
++  title: "Create Account",
++  robots: { index: false, follow: false },
++};
++
++/** Only ever a same-site path — an unsanitized redirect target is an open redirect. */
++function safeRedirect(value: string | undefined): string {
++  if (!value) return "/discovery";
++  if (!value.startsWith("/") || value.startsWith("//")) return "/discovery";
++  return value;
++}
++
++export default async function SignupPage({
++  searchParams,
++}: PageProps<"/signup">) {
++  const { redirect } = await searchParams;
++  const redirectTo = safeRedirect(typeof redirect === "string" ? redirect : undefined);
++
++  return (
++    <main className="min-h-screen flex items-center justify-center px-6 py-16">
++      <div className="w-full max-w-sm">
++        <div className="text-center mb-8">
++          <Wordmark className="text-2xl" />
++          <p className="text-sm text-gray-400 mt-3">
++            Create an account to use the AI Discovery Center — your conversations
++            stay private to you.
++          </p>
++        </div>
++        <SignupForm redirectTo={redirectTo} />
++      </div>
++    </main>
++  );
++}
+diff --git a/src/app/summary/[id]/page.tsx b/src/app/summary/[id]/page.tsx
+index 568da2e..15fc62f 100644
+--- a/src/app/summary/[id]/page.tsx
++++ b/src/app/summary/[id]/page.tsx
+@@ -6,6 +6,8 @@ import { Icon } from "@/components/Icon";
+ import { Wordmark } from "@/components/SiteNav";
+ import { SummaryActions } from "@/components/summary/SummaryActions";
+ import { LeadForm } from "@/components/summary/LeadForm";
++import { BuildContractButton } from "@/components/summary/BuildContractButton";
++import { getCurrentUser } from "@/lib/session-user";
+ import { COMPONENT_ICONS, PRIORITIES } from "@/lib/ai/schemas";
+ import type { Requirement, Summary } from "@/lib/ai/schemas";
+ 
+@@ -276,6 +278,12 @@ export default async function ProjectSummaryPage({
+ 
+   if (!summary) notFound();
+ 
++  // Summaries stay shareable-by-link (see the metadata note above), but
++  // building a contract from one is not — only the client who owns the
++  // underlying session can start pricing on it.
++  const user = await getCurrentUser();
++  const isOwner = user?.id === summary.session.userId;
++
+   const components = toComponents(summary.components);
+   const requirements = toRequirementGroups(summary.requirements);
+   const techStack = toTechStack(summary.techStack);
+@@ -589,6 +597,8 @@ export default async function ProjectSummaryPage({
+               </div>
+             </section>
+ 
++            {isOwner && <BuildContractButton summaryId={summary.publicId} />}
++
+             <LeadForm summaryId={summary.publicId} />
+           </div>
+         </div>
+diff --git a/src/components/admin/ContractApproveForm.tsx b/src/components/admin/ContractApproveForm.tsx
+new file mode 100644
+index 0000000..d94a119
+--- /dev/null
++++ b/src/components/admin/ContractApproveForm.tsx
+@@ -0,0 +1,130 @@
++"use client";
++
++import { useState } from "react";
++import { Icon } from "@/components/Icon";
++
++function centsToDollarsInput(cents: number): string {
++  return (cents / 100).toFixed(2);
++}
++
++function dollarsInputToCents(value: string): number | null {
++  const n = Number(value);
++  if (!Number.isFinite(n) || n < 0) return null;
++  return Math.round(n * 100);
++}
++
++function apiErrorMessage(data: unknown, fallback: string): string {
++  if (typeof data === "object" && data !== null && "error" in data) {
++    const { error } = data as { error?: unknown };
++    if (typeof error === "string" && error.length > 0) return error;
++  }
++  return fallback;
++}
++
++/**
++ * The human-review action itself. Pre-filled with the AI's draft numbers —
++ * an architect can approve as-is or adjust either figure before it ever
++ * reaches the client.
++ */
++export function ContractApproveForm({
++  contractId,
++  defaultTotalCents,
++  defaultDepositCents,
++}: {
++  contractId: string;
++  defaultTotalCents: number;
++  defaultDepositCents: number;
++}) {
++  const [total, setTotal] = useState(centsToDollarsInput(defaultTotalCents));
++  const [deposit, setDeposit] = useState(centsToDollarsInput(defaultDepositCents));
++  const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
++  const [error, setError] = useState("");
++
++  async function onApprove(event: React.FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (state === "sending") return;
++
++    const totalCents = dollarsInputToCents(total);
++    const depositCents = dollarsInputToCents(deposit);
++    if (totalCents == null || depositCents == null) {
++      setState("error");
++      setError("Enter valid amounts.");
++      return;
++    }
++
++    setState("sending");
++    setError("");
++    try {
++      const res = await fetch(`/api/admin/contracts/${contractId}/approve`, {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ totalCents, depositCents }),
++      });
++      const data: unknown = await res.json().catch(() => null);
++      if (!res.ok) throw new Error(apiErrorMessage(data, "Could not approve."));
++      setState("sent");
++    } catch (err) {
++      setState("error");
++      setError(err instanceof Error ? err.message : "Could not approve.");
++    }
++  }
++
++  if (state === "sent") {
++    return (
++      <p role="status" className="text-sm text-emerald-300 flex items-center gap-2">
++        <Icon name="circle-check" className="text-xs" /> Sent to client
++      </p>
++    );
++  }
++
++  return (
++    <form onSubmit={onApprove} className="flex flex-wrap items-end gap-3">
++      <div>
++        <label
++          htmlFor={`total-${contractId}`}
++          className="block text-[10px] uppercase tracking-wider text-gray-500 mb-1"
++        >
++          Total (USD)
++        </label>
++        <input
++          id={`total-${contractId}`}
++          type="number"
++          min="0"
++          step="0.01"
++          value={total}
++          onChange={(e) => setTotal(e.target.value)}
++          className="w-32 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/50"
++        />
++      </div>
++      <div>
++        <label
++          htmlFor={`deposit-${contractId}`}
++          className="block text-[10px] uppercase tracking-wider text-gray-500 mb-1"
++        >
++          Deposit (USD)
++        </label>
++        <input
++          id={`deposit-${contractId}`}
++          type="number"
++          min="0"
++          step="0.01"
++          value={deposit}
++          onChange={(e) => setDeposit(e.target.value)}
++          className="w-32 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/50"
++        />
++      </div>
++      <button
++        type="submit"
++        disabled={state === "sending"}
++        className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
++      >
++        {state === "sending" ? "Approving…" : "Approve & Send"}
++      </button>
++      {state === "error" && (
++        <p role="alert" className="text-xs text-red-400 w-full">
++          {error}
++        </p>
++      )}
++    </form>
++  );
++}
+diff --git a/src/components/auth/LoginForm.tsx b/src/components/auth/LoginForm.tsx
+new file mode 100644
+index 0000000..2cd4671
+--- /dev/null
++++ b/src/components/auth/LoginForm.tsx
+@@ -0,0 +1,100 @@
++"use client";
++
++import { useState } from "react";
++import Link from "next/link";
++import { createClient } from "@/lib/supabase/client";
++import { Icon } from "@/components/Icon";
++
++const FIELD_CLASS =
++  "w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500/50 transition-colors";
++
++export function LoginForm({ redirectTo }: { redirectTo: string }) {
++  const [email, setEmail] = useState("");
++  const [password, setPassword] = useState("");
++  const [state, setState] = useState<"idle" | "sending" | "error">("idle");
++  const [error, setError] = useState("");
++
++  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (state === "sending") return;
++    setState("sending");
++    setError("");
++    try {
++      const supabase = createClient();
++      const { error: signInError } = await supabase.auth.signInWithPassword({
++        email,
++        password,
++      });
++      if (signInError) throw signInError;
++      // Full navigation, not client-side routing — proxy.ts's session refresh
++      // needs to see the fresh cookie on the very next request.
++      window.location.href = redirectTo;
++    } catch (err) {
++      setState("error");
++      setError(
++        err instanceof Error ? err.message : "Could not sign in. Check your details.",
++      );
++    }
++  }
++
++  return (
++    <div className="glass rounded-2xl p-6">
++      <form onSubmit={onSubmit} className="space-y-3">
++        <div>
++          <label htmlFor="login-email" className="sr-only">
++            Email
++          </label>
++          <input
++            id="login-email"
++            type="email"
++            required
++            autoComplete="email"
++            value={email}
++            onChange={(e) => setEmail(e.target.value)}
++            placeholder="Email"
++            className={FIELD_CLASS}
++          />
++        </div>
++        <div>
++          <label htmlFor="login-password" className="sr-only">
++            Password
++          </label>
++          <input
++            id="login-password"
++            type="password"
++            required
++            autoComplete="current-password"
++            value={password}
++            onChange={(e) => setPassword(e.target.value)}
++            placeholder="Password"
++            className={FIELD_CLASS}
++          />
++        </div>
++        <button
++          type="submit"
++          disabled={state === "sending"}
++          className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
++        >
++          {state === "sending" ? (
++            <>
++              Signing in <Icon name="spinner" spin className="ml-1 text-xs" />
++            </>
++          ) : (
++            "Sign In"
++          )}
++        </button>
++        {state === "error" && (
++          <p role="alert" className="text-xs text-red-400">
++            {error}
++          </p>
++        )}
++        <p className="text-xs text-gray-500 text-center pt-1">
++          Don&apos;t have an account?{" "}
++          <Link href="/signup" className="text-blue-400 hover:text-blue-300">
++            Create one
++          </Link>
++        </p>
++      </form>
++    </div>
++  );
++}
+diff --git a/src/components/auth/SignOutButton.tsx b/src/components/auth/SignOutButton.tsx
+new file mode 100644
+index 0000000..698b18e
+--- /dev/null
++++ b/src/components/auth/SignOutButton.tsx
+@@ -0,0 +1,28 @@
++"use client";
++
++import { useState } from "react";
++import { createClient } from "@/lib/supabase/client";
++
++export function SignOutButton() {
++  const [signingOut, setSigningOut] = useState(false);
++
++  async function onClick() {
++    if (signingOut) return;
++    setSigningOut(true);
++    const supabase = createClient();
++    await supabase.auth.signOut();
++    // Full navigation so proxy.ts sees the cleared cookie on the next request.
++    window.location.href = "/";
++  }
++
++  return (
++    <button
++      type="button"
++      onClick={onClick}
++      disabled={signingOut}
++      className="px-5 py-2.5 border border-white/10 rounded-full text-xs font-semibold text-gray-300 hover:text-white hover:border-white/20 transition-colors disabled:opacity-50"
++    >
++      {signingOut ? "Signing out…" : "Sign Out"}
++    </button>
++  );
++}
+diff --git a/src/components/auth/SignupForm.tsx b/src/components/auth/SignupForm.tsx
+new file mode 100644
+index 0000000..46c687a
+--- /dev/null
++++ b/src/components/auth/SignupForm.tsx
+@@ -0,0 +1,148 @@
++"use client";
++
++import { useState } from "react";
++import Link from "next/link";
++import { createClient } from "@/lib/supabase/client";
++import { Icon } from "@/components/Icon";
++
++const FIELD_CLASS =
++  "w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500/50 transition-colors";
++
++export function SignupForm({ redirectTo }: { redirectTo: string }) {
++  const [fullName, setFullName] = useState("");
++  const [email, setEmail] = useState("");
++  const [password, setPassword] = useState("");
++  const [state, setState] = useState<"idle" | "sending" | "check-email" | "error">(
++    "idle",
++  );
++  const [error, setError] = useState("");
++
++  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (state === "sending") return;
++    setState("sending");
++    setError("");
++
++    if (password.length < 8) {
++      setState("error");
++      setError("Password must be at least 8 characters.");
++      return;
++    }
++
++    try {
++      const supabase = createClient();
++      const { data, error: signUpError } = await supabase.auth.signUp({
++        email,
++        password,
++        options: {
++          data: { full_name: fullName },
++          emailRedirectTo:
++            typeof window !== "undefined"
++              ? `${window.location.origin}${redirectTo}`
++              : undefined,
++        },
++      });
++      if (signUpError) throw signUpError;
++
++      if (data.session) {
++        // Email confirmation is off for this project — already signed in.
++        window.location.href = redirectTo;
++        return;
++      }
++      setState("check-email");
++    } catch (err) {
++      setState("error");
++      setError(err instanceof Error ? err.message : "Could not create your account.");
++    }
++  }
++
++  if (state === "check-email") {
++    return (
++      <div className="glass rounded-2xl p-6">
++        <p role="status" className="text-sm text-emerald-300 flex items-start gap-2">
++          <Icon name="circle-check" className="mt-0.5 text-xs" />
++          <span>
++            Check {email} for a confirmation link, then come back and sign in.
++          </span>
++        </p>
++      </div>
++    );
++  }
++
++  return (
++    <div className="glass rounded-2xl p-6">
++      <form onSubmit={onSubmit} className="space-y-3">
++        <div>
++          <label htmlFor="signup-name" className="sr-only">
++            Full name
++          </label>
++          <input
++            id="signup-name"
++            type="text"
++            required
++            autoComplete="name"
++            value={fullName}
++            onChange={(e) => setFullName(e.target.value)}
++            placeholder="Full Name"
++            className={FIELD_CLASS}
++          />
++        </div>
++        <div>
++          <label htmlFor="signup-email" className="sr-only">
++            Email
++          </label>
++          <input
++            id="signup-email"
++            type="email"
++            required
++            autoComplete="email"
++            value={email}
++            onChange={(e) => setEmail(e.target.value)}
++            placeholder="Email"
++            className={FIELD_CLASS}
++          />
++        </div>
++        <div>
++          <label htmlFor="signup-password" className="sr-only">
++            Password
++          </label>
++          <input
++            id="signup-password"
++            type="password"
++            required
++            minLength={8}
++            autoComplete="new-password"
++            value={password}
++            onChange={(e) => setPassword(e.target.value)}
++            placeholder="Password (min. 8 characters)"
++            className={FIELD_CLASS}
++          />
++        </div>
++        <button
++          type="submit"
++          disabled={state === "sending"}
++          className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
++        >
++          {state === "sending" ? (
++            <>
++              Creating account <Icon name="spinner" spin className="ml-1 text-xs" />
++            </>
++          ) : (
++            "Create Account"
++          )}
++        </button>
++        {state === "error" && (
++          <p role="alert" className="text-xs text-red-400">
++            {error}
++          </p>
++        )}
++        <p className="text-xs text-gray-500 text-center pt-1">
++          Already have an account?{" "}
++          <Link href="/login" className="text-blue-400 hover:text-blue-300">
++            Sign in
++          </Link>
++        </p>
++      </form>
++    </div>
++  );
++}
+diff --git a/src/components/contract/ContractView.tsx b/src/components/contract/ContractView.tsx
+new file mode 100644
+index 0000000..15b00de
+--- /dev/null
++++ b/src/components/contract/ContractView.tsx
+@@ -0,0 +1,179 @@
++"use client";
++
++import { useState } from "react";
++import { Icon } from "@/components/Icon";
++
++const FIELD_CLASS =
++  "w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500/50 transition-colors";
++
++function apiErrorMessage(data: unknown, fallback: string): string {
++  if (typeof data === "object" && data !== null && "error" in data) {
++    const { error } = data as { error?: unknown };
++    if (typeof error === "string" && error.length > 0) return error;
++  }
++  return fallback;
++}
++
++export function ContractView({
++  contractId,
++  bodyText,
++  status,
++  signerNameDefault,
++  paid,
++}: {
++  contractId: string;
++  bodyText: string;
++  status: "SENT" | "SIGNED";
++  signerNameDefault: string;
++  paid: boolean;
++}) {
++  const [currentStatus, setCurrentStatus] = useState(status);
++  const [signerName, setSignerName] = useState(signerNameDefault);
++  const [agreed, setAgreed] = useState(false);
++  const [signState, setSignState] = useState<"idle" | "signing" | "error">("idle");
++  const [signError, setSignError] = useState("");
++  const [payState, setPayState] = useState<"idle" | "starting" | "error">("idle");
++  const [payError, setPayError] = useState("");
++
++  async function onSign(event: React.FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (signState === "signing" || !agreed) return;
++    setSignState("signing");
++    setSignError("");
++    try {
++      const res = await fetch(`/api/contracts/${contractId}/sign`, {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ signerName }),
++      });
++      const data: unknown = await res.json().catch(() => null);
++      if (!res.ok) throw new Error(apiErrorMessage(data, "Could not sign. Try again."));
++      setCurrentStatus("SIGNED");
++      setSignState("idle");
++    } catch (err) {
++      setSignState("error");
++      setSignError(err instanceof Error ? err.message : "Could not sign. Try again.");
++    }
++  }
++
++  async function onPay() {
++    if (payState === "starting") return;
++    setPayState("starting");
++    setPayError("");
++    try {
++      const res = await fetch(`/api/contracts/${contractId}/checkout`, {
++        method: "POST",
++      });
++      const data: unknown = await res.json().catch(() => null);
++      if (!res.ok) {
++        throw new Error(apiErrorMessage(data, "Could not start checkout. Try again."));
++      }
++      const { url } = data as { url: string };
++      window.location.href = url;
++    } catch (err) {
++      setPayState("error");
++      setPayError(
++        err instanceof Error ? err.message : "Could not start checkout. Try again.",
++      );
++    }
++  }
++
++  return (
++    <div className="space-y-6">
++      <div className="glass rounded-2xl p-8">
++        <pre className="whitespace-pre-wrap font-sans text-sm text-gray-300 leading-relaxed">
++          {bodyText}
++        </pre>
++      </div>
++
++      {currentStatus === "SENT" && (
++        <div className="glass rounded-2xl p-6">
++          <h2 className="text-sm font-bold mb-4">Sign This Agreement</h2>
++          <form onSubmit={onSign} className="space-y-3">
++            <div>
++              <label htmlFor="signer-name" className="sr-only">
++                Type your full legal name
++              </label>
++              <input
++                id="signer-name"
++                type="text"
++                required
++                value={signerName}
++                onChange={(e) => setSignerName(e.target.value)}
++                placeholder="Type your full legal name"
++                className={FIELD_CLASS}
++              />
++            </div>
++            <label className="flex items-start gap-2.5 text-xs text-gray-400">
++              <input
++                type="checkbox"
++                checked={agreed}
++                onChange={(e) => setAgreed(e.target.checked)}
++                className="mt-0.5"
++              />
++              <span>
++                I have read the agreement above and I am electronically signing it
++                as {signerName || "the client named above"}.
++              </span>
++            </label>
++            <button
++              type="submit"
++              disabled={signState === "signing" || !agreed}
++              className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
++            >
++              {signState === "signing" ? (
++                <>
++                  Signing <Icon name="spinner" spin className="ml-1 text-xs" />
++                </>
++              ) : (
++                "Sign Agreement"
++              )}
++            </button>
++            {signState === "error" && (
++              <p role="alert" className="text-xs text-red-400">
++                {signError}
++              </p>
++            )}
++          </form>
++        </div>
++      )}
++
++      {currentStatus === "SIGNED" && (
++        <div className="glass rounded-2xl p-6">
++          <p className="text-sm text-emerald-300 flex items-start gap-2 mb-4">
++            <Icon name="circle-check" className="mt-0.5 text-xs" />
++            <span>Signed. Next: pay the deposit to start work.</span>
++          </p>
++          {paid ? (
++            <p className="text-sm text-emerald-300 flex items-start gap-2">
++              <Icon name="circle-check" className="mt-0.5 text-xs" />
++              <span>Deposit received — a SoftwarePros architect will be in touch.</span>
++            </p>
++          ) : (
++            <>
++              <button
++                type="button"
++                onClick={onPay}
++                disabled={payState === "starting"}
++                className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
++              >
++                {payState === "starting" ? (
++                  <>
++                    Starting checkout <Icon name="spinner" spin className="ml-1 text-xs" />
++                  </>
++                ) : (
++                  "Pay Deposit"
++                )}
++              </button>
++              {payState === "error" && (
++                <p role="alert" className="text-xs text-red-400 mt-2">
++                  {payError}
++                </p>
++              )}
++            </>
++          )}
++        </div>
++      )}
++    </div>
++  );
++}
+diff --git a/src/components/summary/BuildContractButton.tsx b/src/components/summary/BuildContractButton.tsx
+new file mode 100644
+index 0000000..775541a
+--- /dev/null
++++ b/src/components/summary/BuildContractButton.tsx
+@@ -0,0 +1,75 @@
++"use client";
++
++import { useState } from "react";
++import { Icon } from "@/components/Icon";
++
++function apiErrorMessage(data: unknown, fallback: string): string {
++  if (typeof data === "object" && data !== null && "error" in data) {
++    const { error } = data as { error?: unknown };
++    if (typeof error === "string" && error.length > 0) return error;
++  }
++  return fallback;
++}
++
++/**
++ * Drafts a contract from this summary and sends the client to it. The
++ * contract starts out pending a Senior Software Architect's review — this
++ * button does not itself put any price in front of the client.
++ */
++export function BuildContractButton({ summaryId }: { summaryId: string }) {
++  const [state, setState] = useState<"idle" | "sending" | "error">("idle");
++  const [error, setError] = useState("");
++
++  async function onClick() {
++    if (state === "sending") return;
++    setState("sending");
++    setError("");
++    try {
++      const res = await fetch("/api/contracts", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ summaryId }),
++      });
++      const data: unknown = await res.json().catch(() => null);
++      if (!res.ok) {
++        throw new Error(apiErrorMessage(data, "Could not start your contract."));
++      }
++      const { publicId } = data as { publicId: string };
++      window.location.href = `/contract/${publicId}`;
++    } catch (err) {
++      setState("error");
++      setError(err instanceof Error ? err.message : "Could not start your contract.");
++    }
++  }
++
++  return (
++    <div className="glass rounded-2xl p-6">
++      <h3 className="text-sm font-bold mb-2">Ready To Start?</h3>
++      <p className="text-xs text-gray-500 mb-4">
++        We&apos;ll draft pricing and a contract from this summary. A Senior Software
++        Architect reviews it before you see any numbers.
++      </p>
++      <button
++        type="button"
++        onClick={onClick}
++        disabled={state === "sending"}
++        className="w-full py-3 bg-white/10 rounded-lg text-sm font-medium hover:bg-white/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
++      >
++        {state === "sending" ? (
++          <>
++            Drafting <Icon name="spinner" spin className="ml-1 text-xs" />
++          </>
++        ) : (
++          <>
++            Get Pricing & Contract <Icon name="arrow-right" className="ml-1 text-xs" />
++          </>
++        )}
++      </button>
++      {state === "error" && (
++        <p role="alert" className="text-xs text-red-400 mt-2">
++          {error}
++        </p>
++      )}
++    </div>
++  );
++}
+diff --git a/src/lib/ai/client.ts b/src/lib/ai/client.ts
+index cad39d8..d483f42 100644
+--- a/src/lib/ai/client.ts
++++ b/src/lib/ai/client.ts
+@@ -9,6 +9,16 @@ export const anthropic = new Anthropic();
+ /** Model used for the AI Architect across chat, analysis and summary. */
+ export const MODEL = "claude-opus-5";
+ 
++/**
++ * Model used only for the internal cost-estimate draft (lib/ai/estimate.ts).
++ * Deliberately the cheapest tier, not `MODEL` — this call runs once per
++ * contract request rather than once per chat turn, its output is a draft an
++ * architect reviews before a client ever sees it, and it is rate-limited
++ * separately (see rateLimit("estimate", ...) in api/contracts/route.ts) so a
++ * burst of requests can't run up spend on its own.
++ */
++export const ESTIMATE_MODEL = "claude-haiku-5";
++
+ export function hasAnthropicCredentials() {
+   return Boolean(
+     process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN,
+diff --git a/src/lib/ai/estimate.ts b/src/lib/ai/estimate.ts
+new file mode 100644
+index 0000000..718a515
+--- /dev/null
++++ b/src/lib/ai/estimate.ts
+@@ -0,0 +1,45 @@
++import "server-only";
++import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
++import { anthropic, ESTIMATE_MODEL } from "@/lib/ai/client";
++import { EstimateSchema, type Estimate, type Summary } from "@/lib/ai/schemas";
++
++/**
++ * Internal system prompt for the cost-estimate draft — separate from
++ * `ARCHITECT_SYSTEM_PROMPT` / `SUMMARY_SYSTEM_PROMPT` in prompts.ts, which
++ * deliberately forbid the client-facing AI from ever stating a price. This
++ * prompt is the one place that rule is intentionally different, because its
++ * output is never shown to a client directly — an architect reviews and
++ * adjusts it first. Keep those two rules apart: loosening the client-facing
++ * prompts to "let the AI just quote a price" was exactly the failure mode
++ * this whole review step exists to prevent.
++ */
++const ESTIMATE_SYSTEM_PROMPT = `You draft an internal, non-binding cost estimate for a software project, from a structured project summary a different AI already produced. A human Senior Software Architect reviews and can adjust this number before it is ever shown to a client or attached to a contract — you are drafting a starting point for that review, not a quote.
++
++Base the range on: the complexity rating, the number and priority mix of functional/non-functional requirements, the recommended technology stack, the phase count, and any AI/automation components (these usually add integration and evaluation cost, not just build cost).
++
++Rules:
++- Widen the range (lowCents to highCents) when the summary itself signals unresolved unknowns — open clarifications, vague requirements, unclear integrations. A well-specified "Moderate" project should have a tighter range than a vague "Complex" one.
++- Reason in whole US dollars for a small custom-software engineering firm's rates, then convert to cents. Do not anchor on round marketing numbers ("$50,000") for their own sake — reason from the actual scope.
++- "notes" is for the architect only: name the two or three factors that most drove this number, and anything you were genuinely unsure about. Never write client-facing language here.
++- If the summary is too thin to estimate responsibly (e.g. almost no requirements, complexity unclear), say so plainly in "notes" and return a wide range rather than a falsely precise one.`;
++
++/** Drafts a cost-estimate range from an already-generated project summary. */
++export async function estimateProjectCost(summary: Summary): Promise<Estimate> {
++  const response = await anthropic.messages.parse({
++    model: ESTIMATE_MODEL,
++    max_tokens: 1024,
++    system: ESTIMATE_SYSTEM_PROMPT,
++    output_config: { format: zodOutputFormat(EstimateSchema) },
++    messages: [
++      {
++        role: "user",
++        content: `Draft a cost estimate for this project summary.\n\n<summary>\n${JSON.stringify(summary, null, 2)}\n</summary>`,
++      },
++    ],
++  });
++
++  if (!response.parsed_output) {
++    throw new Error("The estimate draft could not be generated.");
++  }
++  return response.parsed_output;
++}
+diff --git a/src/lib/ai/schemas.ts b/src/lib/ai/schemas.ts
+index 4c29cf5..16c4f16 100644
+--- a/src/lib/ai/schemas.ts
++++ b/src/lib/ai/schemas.ts
+@@ -128,3 +128,29 @@ export const SummarySchema = z.object({
+ });
+ 
+ export type Summary = z.infer<typeof SummarySchema>;
++
++/**
++ * Draft cost estimate for a project summary. This is a starting point for a
++ * human architect's review — never shown to a client directly, and never the
++ * only thing standing between an AI number and a signed, paid contract. See
++ * lib/ai/estimate.ts and the PENDING_REVIEW step in api/contracts/route.ts.
++ */
++export const EstimateSchema = z.object({
++  lowCents: z
++    .number()
++    .int()
++    .nonnegative()
++    .describe("Low end of the estimated total project cost, in whole US cents"),
++  highCents: z
++    .number()
++    .int()
++    .nonnegative()
++    .describe("High end of the estimated total project cost, in whole US cents"),
++  notes: z
++    .string()
++    .describe(
++      "For the reviewing architect only: the assumptions and reasoning behind this range — scope drivers, integration risk, anything that could move the number.",
++    ),
++});
++
++export type Estimate = z.infer<typeof EstimateSchema>;
+diff --git a/src/lib/contract.ts b/src/lib/contract.ts
+new file mode 100644
+index 0000000..eba7a53
+--- /dev/null
++++ b/src/lib/contract.ts
+@@ -0,0 +1,89 @@
++import "server-only";
++import { createHash } from "node:crypto";
++
++export type ContractInput = {
++  clientName: string;
++  clientEmail: string;
++  projectTitle: string;
++  scopeText: string;
++  totalCents: number;
++  depositCents: number;
++  currency: string;
++};
++
++export function formatMoney(cents: number, currency: string): string {
++  return new Intl.NumberFormat("en-US", {
++    style: "currency",
++    currency: currency.toUpperCase(),
++  }).format(cents / 100);
++}
++
++/**
++ * Renders the full contract text from a fixed template. This is a starting
++ * point, not a substitute for legal review — see the note at the top of
++ * api/contracts/route.ts. Nothing in this template should be treated as
++ * legal advice, and SoftwarePros should have it reviewed by a lawyer before
++ * relying on it for real client agreements.
++ */
++export function renderContractBody(input: ContractInput): string {
++  const total = formatMoney(input.totalCents, input.currency);
++  const deposit = formatMoney(input.depositCents, input.currency);
++  const remainder = formatMoney(
++    input.totalCents - input.depositCents,
++    input.currency,
++  );
++  const today = new Intl.DateTimeFormat("en-US", {
++    dateStyle: "long",
++    timeZone: "UTC",
++  }).format(new Date());
++
++  return `SOFTWARE DEVELOPMENT SERVICES AGREEMENT
++
++This Agreement is entered into as of ${today} between SoftwarePros ("Developer") and ${input.clientName} <${input.clientEmail}> ("Client"), for the project described below.
++
++1. PROJECT
++${input.projectTitle}
++
++2. SCOPE OF WORK
++${input.scopeText}
++
++This scope was produced by SoftwarePros' AI Discovery Center and reviewed by a SoftwarePros Senior Software Architect before being offered to Client. Work outside this scope requires a written change order, agreed by both parties, before it begins.
++
++3. FEES
++Total project fee: ${total} (${input.currency.toUpperCase()}).
++
++4. PAYMENT SCHEDULE
++- Deposit due before work begins: ${deposit} (50% of the total fee).
++- Remaining balance due upon completion, or per a milestone schedule to be confirmed with Client before work begins: ${remainder}.
++- The deposit is paid via the secure payment link provided with this Agreement. Work begins once the deposit payment is confirmed and both parties have signed below.
++
++5. CHANGE ORDERS
++Any change to the scope described in Section 2 must be agreed in writing by both parties and may adjust the fee and schedule in Sections 3 and 4.
++
++6. TERM AND TERMINATION
++Either party may terminate this Agreement for material breach not cured within 14 days of written notice. Client remains responsible for fees for work performed and expenses incurred up to the effective date of termination.
++
++7. CONFIDENTIALITY
++Each party will keep the other's confidential information confidential and use it only to perform this Agreement.
++
++8. WARRANTY AND LIMITATION OF LIABILITY
++Developer will perform the services in a professional and workmanlike manner. Except as expressly stated, the services are provided without other warranties, express or implied. Developer's aggregate liability under this Agreement is limited to the fees paid by Client under this Agreement.
++
++9. GOVERNING LAW
++This Agreement is governed by the laws of the jurisdiction in which SoftwarePros operates, without regard to conflict-of-law principles.
++
++10. ENTIRE AGREEMENT
++This Agreement, together with the scope in Section 2, is the entire agreement between the parties regarding the Project and supersedes any prior discussions or proposals on the same subject.
++
++SIGNATURES
++
++Client: ${input.clientName} <${input.clientEmail}>
++Signature and date recorded electronically below.
++
++SoftwarePros: countersigned by a Senior Software Architect prior to sending this Agreement to Client.`;
++}
++
++/** sha256 of the exact bytes a signature attests to — hex-encoded. */
++export function hashContractBody(bodyText: string): string {
++  return createHash("sha256").update(bodyText, "utf8").digest("hex");
++}
+diff --git a/src/lib/session-user.ts b/src/lib/session-user.ts
+new file mode 100644
+index 0000000..b105711
+--- /dev/null
++++ b/src/lib/session-user.ts
+@@ -0,0 +1,32 @@
++import "server-only";
++import { createClient } from "@/lib/supabase/server";
++
++export type CurrentUser = { id: string; email: string | null; name: string | null };
++
++/**
++ * The logged-in client for this request, or null if unauthenticated.
++ *
++ * Safe to call from any Server Component or Route Handler under a path
++ * `proxy.ts` already gates — this never itself redirects or 401s, it just
++ * reports who (if anyone) is signed in, so a route can also enforce
++ * *ownership* (e.g. "this session belongs to this user") on top of the
++ * proxy's plain "is anyone signed in" check.
++ */
++export async function getCurrentUser(): Promise<CurrentUser | null> {
++  const supabase = await createClient();
++  const {
++    data: { user },
++  } = await supabase.auth.getUser();
++  if (!user) return null;
++  return {
++    id: user.id,
++    email: user.email ?? null,
++    // Set at signup (see components/auth/SignupForm.tsx). Falls back to the
++    // email locally rather than leaving a contract's "Client:" line blank.
++    name:
++      typeof user.user_metadata?.full_name === "string" &&
++      user.user_metadata.full_name.trim()
++        ? user.user_metadata.full_name.trim()
++        : null,
++  };
++}
+diff --git a/src/lib/stripe.ts b/src/lib/stripe.ts
+new file mode 100644
+index 0000000..a9d12ce
+--- /dev/null
++++ b/src/lib/stripe.ts
+@@ -0,0 +1,26 @@
++import "server-only";
++import Stripe from "stripe";
++
++/**
++ * Shared Stripe client. `STRIPE_SECRET_KEY` is server-only — never prefix it
++ * with NEXT_PUBLIC_ or it ships in the client bundle. This flow uses
++ * server-created Checkout Sessions (see api/contracts/[id]/checkout), so no
++ * publishable key or Stripe.js is needed in the browser at all.
++ */
++let client: Stripe | null = null;
++
++export function stripe(): Stripe {
++  if (client) return client;
++  const key = process.env.STRIPE_SECRET_KEY;
++  if (!key) {
++    throw new Error(
++      "Stripe is not configured. Set STRIPE_SECRET_KEY in your environment.",
++    );
++  }
++  client = new Stripe(key);
++  return client;
++}
++
++export function hasStripeCredentials(): boolean {
++  return Boolean(process.env.STRIPE_SECRET_KEY);
++}
+diff --git a/src/lib/supabase/client.ts b/src/lib/supabase/client.ts
+new file mode 100644
+index 0000000..5d3beae
+--- /dev/null
++++ b/src/lib/supabase/client.ts
+@@ -0,0 +1,21 @@
++"use client";
++
++import { createBrowserClient } from "@supabase/ssr";
++
++/**
++ * Supabase client for Client Components — used only by the signup/login
++ * forms, which call `auth.signUp` / `auth.signInWithPassword` directly from
++ * the browser against Supabase's own API (never through our server), then
++ * let `proxy.ts`'s session refresh pick up the resulting cookie on the next
++ * request.
++ */
++export function createClient() {
++  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
++  if (!url || !publishableKey) {
++    throw new Error(
++      "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.",
++    );
++  }
++  return createBrowserClient(url, publishableKey);
++}
+diff --git a/src/lib/supabase/middleware.ts b/src/lib/supabase/middleware.ts
+new file mode 100644
+index 0000000..0b5c33c
+--- /dev/null
++++ b/src/lib/supabase/middleware.ts
+@@ -0,0 +1,58 @@
++import "server-only";
++import { NextResponse, type NextRequest } from "next/server";
++import { createServerClient, parseCookieHeader } from "@supabase/ssr";
++import type { User } from "@supabase/supabase-js";
++
++/**
++ * Refreshes the Supabase session cookie for one request and reports the
++ * current user, if any.
++ *
++ * Must run before any auth decision in `proxy.ts`: a short-lived access
++ * token that never gets refreshed here silently logs a client out mid-visit,
++ * with no error to show them — they'd just start bouncing off `/login`.
++ */
++export async function updateSession(
++  request: NextRequest,
++): Promise<{ response: NextResponse; user: User | null }> {
++  let response = NextResponse.next({ request });
++
++  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
++  if (!url || !publishableKey) {
++    // Fails open on marketing pages, fails closed on anything gated — the
++    // gate check in proxy.ts treats a null user as logged out either way.
++    console.error(
++      "[auth] Supabase is not configured (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY).",
++    );
++    return { response, user: null };
++  }
++
++  const supabase = createServerClient(url, publishableKey, {
++    cookies: {
++      getAll() {
++        return parseCookieHeader(request.cookies.toString());
++      },
++      setAll(cookiesToSet, headers) {
++        for (const { name, value } of cookiesToSet) {
++          request.cookies.set(name, value);
++        }
++        response = NextResponse.next({ request });
++        for (const { name, value, options } of cookiesToSet) {
++          response.cookies.set(name, value, options);
++        }
++        for (const [key, value] of Object.entries(headers)) {
++          response.headers.set(key, value);
++        }
++      },
++    },
++  });
++
++  // getUser() (not getSession()) — it re-validates against Supabase rather
++  // than trusting the cookie's claims as-is, and refreshes an expired access
++  // token via setAll above as a side effect.
++  const {
++    data: { user },
++  } = await supabase.auth.getUser();
++
++  return { response, user };
++}
+diff --git a/src/lib/supabase/server.ts b/src/lib/supabase/server.ts
+new file mode 100644
+index 0000000..0aca8b6
+--- /dev/null
++++ b/src/lib/supabase/server.ts
+@@ -0,0 +1,33 @@
++import "server-only";
++import { cookies } from "next/headers";
++import { createServerClient, parseCookieHeader } from "@supabase/ssr";
++
++/**
++ * Supabase client for Server Components and Route Handlers.
++ *
++ * Read-only by design: `setAll` is intentionally omitted. Session refresh
++ * happens once, up front, in `proxy.ts` (via `lib/supabase/middleware.ts`)
++ * — every request this app serves passes through it first, so by the time a
++ * Server Component or Route Handler runs, cookies are already current. A
++ * Server Component cannot write cookies at all, and a second, redundant
++ * refresh attempt here would only risk racing the one the proxy already did.
++ */
++export async function createClient() {
++  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
++  if (!url || !publishableKey) {
++    throw new Error(
++      "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.",
++    );
++  }
++
++  const cookieStore = await cookies();
++
++  return createServerClient(url, publishableKey, {
++    cookies: {
++      getAll() {
++        return parseCookieHeader(cookieStore.toString());
++      },
++    },
++  });
++}
+diff --git a/src/proxy.ts b/src/proxy.ts
+index c5c5e0e..76bff49 100644
+--- a/src/proxy.ts
++++ b/src/proxy.ts
+@@ -1,14 +1,79 @@
+ import { NextResponse } from "next/server";
+ import type { NextRequest } from "next/server";
+ import { isAuthorized, unauthorizedResponse } from "@/lib/auth";
++import { updateSession } from "@/lib/supabase/middleware";
+ 
+-export function proxy(request: NextRequest): Response {
+-  if (!isAuthorized(request)) return unauthorizedResponse();
+-  return NextResponse.next();
++/**
++ * Page routes a signed-in client account is required for. `/discovery` so
++ * one visitor's AI conversation is never reachable by another; `/contract`
++ * so a payable, signable contract is never reachable by anyone but the
++ * client it was drafted for (ownership itself is still re-checked in each
++ * route/page — this only gates "is anyone signed in at all").
++ */
++const AUTH_REQUIRED_PAGE_PREFIXES = ["/discovery", "/contract", "/account"];
++
++/**
++ * API routes requiring the same. `/api/webhooks` is deliberately absent —
++ * Stripe calls it directly and it authenticates by signature, not session.
++ */
++const AUTH_REQUIRED_API_PREFIXES = [
++  "/api/sessions",
++  "/api/chat",
++  "/api/summary",
++  "/api/upload",
++  "/api/contracts",
++];
++
++function matchesPrefix(pathname: string, prefixes: string[]): boolean {
++  return prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
++}
++
++export async function proxy(request: NextRequest): Promise<Response> {
++  const { pathname } = request.nextUrl;
++
++  // Internal staff surface: unchanged HTTP Basic auth, never touches
++  // Supabase — an outage or misconfiguration on the client-auth side must
++  // never lock staff out of /admin.
++  if (pathname.startsWith("/admin") || pathname.startsWith("/api/admin")) {
++    if (!isAuthorized(request)) return unauthorizedResponse();
++    return NextResponse.next();
++  }
++
++  // Every other request refreshes the Supabase session cookie first, so a
++  // token nearing expiry renews before a gate check below can wrongly treat
++  // a still-valid client as logged out.
++  const { response, user } = await updateSession(request);
++
++  const needsAuth =
++    matchesPrefix(pathname, AUTH_REQUIRED_PAGE_PREFIXES) ||
++    matchesPrefix(pathname, AUTH_REQUIRED_API_PREFIXES);
++
++  if (needsAuth && !user) {
++    if (pathname.startsWith("/api/")) {
++      return Response.json({ error: "Sign in required." }, { status: 401 });
++    }
++    const loginUrl = new URL("/login", request.url);
++    loginUrl.searchParams.set("redirect", pathname);
++    return NextResponse.redirect(loginUrl);
++  }
++
++  return response;
+ }
+ 
+-// Scoped to the admin surface only: public pages, static assets and the
+-// public /api/leads endpoint never hit this code path.
+ export const config = {
+-  matcher: ["/admin/:path*", "/api/admin/:path*"],
++  matcher: [
++    "/admin/:path*",
++    "/api/admin/:path*",
++    "/discovery/:path*",
++    "/contract/:path*",
++    "/api/sessions/:path*",
++    "/api/chat/:path*",
++    "/api/summary/:path*",
++    "/api/upload/:path*",
++    "/api/contracts/:path*",
++    // Session refresh also runs on every other route (marketing pages
++    // included) so a client's login never silently expires between visits —
++    // everything except static assets and generated image routes.
++    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
++  ],
+ };
+-- 
+2.43.0
+
