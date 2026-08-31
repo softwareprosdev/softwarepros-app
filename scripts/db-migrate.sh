@@ -22,15 +22,27 @@ set -eu
 attempts="${MIGRATE_MAX_ATTEMPTS:-12}"
 delay="${MIGRATE_RETRY_SECONDS:-5}"
 
+if [ -z "${DIRECT_URL:-}" ]; then
+  echo "db-migrate: DIRECT_URL is not set." >&2
+  echo "db-migrate: set it in the Coolify environment variables for this resource — a" >&2
+  echo "db-migrate: session-mode or direct (non-pooled) Postgres connection. Pointing it" >&2
+  echo "db-migrate: at a transaction-mode pooler (e.g. Supabase's :6543 pooler) makes" >&2
+  echo "db-migrate: 'prisma migrate deploy' hang forever instead of failing, because it" >&2
+  echo "db-migrate: can never observe the advisory lock it just took." >&2
+  exit 1
+fi
+
 if [ -z "${DATABASE_URL:-}" ]; then
   echo "db-migrate: DATABASE_URL is not set." >&2
   echo "db-migrate: set it in the Coolify environment variables for this resource." >&2
   exit 1
 fi
 
-# Never echo DATABASE_URL — it carries the password, and deploy logs are not
-# a secret store. The host is enough to tell "wrong database" from "no database".
-echo "db-migrate: applying migrations (up to ${attempts} attempts, ${delay}s apart)"
+# Never echo DATABASE_URL or DIRECT_URL — they carry the password, and deploy
+# logs are not a secret store. The host is enough to tell "wrong database"
+# from "no database". Migrations run over DIRECT_URL; the app's own queries
+# (src/lib/prisma.ts) use the pooled DATABASE_URL instead.
+echo "db-migrate: applying migrations via DIRECT_URL (up to ${attempts} attempts, ${delay}s apart)"
 
 n=1
 while :; do

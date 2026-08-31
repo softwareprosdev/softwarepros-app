@@ -20,9 +20,20 @@
 #   - The domain on the `app` service, written with the container port:
 #     https://your-domain.com:3000  (the :3000 tells Coolify where to route;
 #     it is not part of the public URL)
-#   - Environment variables: DATABASE_URL, ANTHROPIC_API_KEY, ADMIN_USER,
-#     ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_* trio for
-#     voice). NEXT_PUBLIC_SITE_URL must also be marked a Build Variable.
+#   - Environment variables: DATABASE_URL, DIRECT_URL, ANTHROPIC_API_KEY,
+#     ADMIN_USER, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_*
+#     trio for voice). NEXT_PUBLIC_SITE_URL must also be marked a Build
+#     Variable.
+#
+#     DATABASE_URL and DIRECT_URL are deliberately different connections:
+#     DATABASE_URL is the app's pooled runtime connection (e.g. Supabase's
+#     transaction-mode pooler on :6543 — src/lib/prisma.ts reads it directly).
+#     DIRECT_URL is what prisma.config.ts hands the CLI for `migrate deploy`
+#     in scripts/db-migrate.sh, and it must be session-mode or direct — on
+#     Supabase, the same pooler host on :5432, or db.<ref>.supabase.co:5432.
+#     A transaction-mode pooler can't hold the advisory lock `migrate deploy`
+#     needs, so pointing DIRECT_URL at one makes the migration hang forever
+#     rather than fail, and the container never becomes healthy.
 
 networks:
   # Coolify's Traefik proxy and its managed Postgres both live here. A stack
@@ -46,6 +57,7 @@ services:
       - coolify
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      DIRECT_URL: ${DIRECT_URL}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}

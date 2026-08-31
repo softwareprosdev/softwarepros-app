@@ -9,6 +9,14 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // The CLI (migrate deploy, migrate status, ...) needs a session-level
+    // connection to hold the advisory lock it takes for the duration of a
+    // migration. A transaction-mode pooler — like DATABASE_URL below, which
+    // stays on the fast pooler for the app's runtime queries — hands out a
+    // different physical connection per statement, so the CLI can never see
+    // a lock it just took and hangs indefinitely instead of failing. Point
+    // DIRECT_URL at a session-mode or direct (non-pooled) connection: on
+    // Supabase, the same pooler host on port 5432, or db.<ref>.supabase.co.
+    url: process.env["DIRECT_URL"],
   },
 });
