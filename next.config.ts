@@ -2,6 +2,23 @@ import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV === "development";
 
+// Supabase Auth (@supabase/ssr's browser client) talks to the project's API
+// directly from the browser for sign-up/login/session refresh — that origin
+// has to be in connect-src or every auth call is silently blocked by CSP.
+// Read from the same build arg that inlines NEXT_PUBLIC_SUPABASE_URL into the
+// bundle (see the ARG/ENV pair in Dockerfile), falling back to the general
+// *.supabase.co pattern so a missing env var degrades to "works" rather than
+// "auth is silently broken in prod".
+const supabaseConnectSrc = (() => {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!url) return "https://*.supabase.co";
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "https://*.supabase.co";
+  }
+})();
+
 /**
  * `unsafe-inline` for styles is required by Next's inlined critical CSS and by
  * the design's inline `style` attributes. Scripts additionally need
@@ -13,7 +30,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://storage.googleapis.com",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  `connect-src 'self' ${supabaseConnectSrc}`,
   "media-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",

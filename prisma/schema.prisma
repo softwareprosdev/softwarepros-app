@@ -27,14 +27,37 @@ enum LeadStatus {
   ARCHIVED
 }
 
+enum ContractStatus {
+  /// AI-drafted, priced, and waiting on a human architect's review. Never
+  /// shown to the client — see api/contracts/route.ts and lib/contract.ts.
+  PENDING_REVIEW
+  /// Reviewed, approved, and visible to the client for signature.
+  SENT
+  SIGNED
+  VOID
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
 /// One AI Discovery Center conversation.
 model DiscoverySession {
   id        String   @id @default(cuid())
   /// Short unguessable id used in URLs.
   publicId  String   @unique
-  /// Opaque per-browser token from an httpOnly cookie. Scopes the "recent
-  /// sessions" list so one visitor never sees another visitor's conversations.
+  /// Opaque per-browser token from an httpOnly cookie. Predates Supabase
+  /// auth (see `userId`) and is kept only for sessions created before it
+  /// shipped; no longer trusted for access control on its own.
   ownerToken String?
+  /// Supabase auth.users.id of the client who owns this session. Required
+  /// for every session created after auth shipped — the proxy rejects
+  /// anonymous access to /discovery and its APIs. Nullable only so
+  /// pre-existing anonymous rows do not violate the column on migrate.
+  userId    String?
   title     String   @default("New Discovery")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -65,6 +88,7 @@ model DiscoverySession {
 
   @@index([createdAt])
   @@index([ownerToken, updatedAt])
+  @@index([userId, updatedAt])
 }
 
 model Message {
@@ -126,8 +150,98 @@ model ProjectSummary {
 
   createdAt DateTime @default(now())
   leads     Lead[]
+  contracts Contract[]
+
+  /// AI-estimated range in whole cents, USD. Drafted by a cost-capped model
+  /// (see lib/ai/estimate.ts) and never shown to the client until a human
+  /// architect reviews and approves the contract it becomes part of.
+  estimatedLowCents  Int?
+  estimatedHighCents Int?
+  /// The AI's stated assumptions and reasoning for the range above — for the
+  /// reviewing architect, never rendered to the client.
+  estimateNotes      String? @db.Text
 
   @@index([createdAt])
+}
+
+/// A contract offer generated from a ProjectSummary: a frozen scope and
+/// price, a required human-review step, then client signature and deposit
+/// payment. See lib/contract.ts for how bodyText/bodyHash are produced.
+///
+/// This is a template a human approves before a client ever sees it, not a
+/// substitute for legal review of the contract language itself.
+model Contract {
+  id       String @id @default(cuid())
+  /// Short unguessable id used in the client-facing /contract/{id} URL.
+  publicId String @unique
+
+  /// Supabase auth.users.id of the client this contract is for.
+  userId String
+
+  sessionId String?
+  session   DiscoverySession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  summaryId String?
+  summary   ProjectSummary?   @relation(fields: [summaryId], references: [id], onDelete: SetNull)
+
+  clientName   String
+  clientEmail  String
+  projectTitle String
+
+  /// The exact scope text shown to the client — frozen at creation, never
+  /// silently edited afterward (bodyHash below detects any drift).
+  scopeText String @db.Text
+  /// The full rendered contract, frozen at the moment it is approved and
+  /// sent. A signature only ever attests to this exact text.
+  bodyText  String @db.Text
+  /// sha256 of bodyText at signing time, stored alongside the signature so a
+  /// dispute can prove exactly what was signed.
+  bodyHash  String?
+
+  currency     String @default("usd")
+  totalCents   Int
+  depositCents Int
+
+  status ContractStatus @default(PENDING_REVIEW)
+
+  reviewedAt DateTime?
+  /// Admin username (from ADMIN_USER Basic auth) who approved pricing and
+  /// released this contract to the client.
+  reviewedBy String?
+
+  signedAt        DateTime?
+  signerName      String?
+  signerIp        String?
+  signerUserAgent String?
+
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Payment {
+  id         String   @id @default(cuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  provider               String @default("stripe")
+  /// Stripe Checkout Session id — unique so a re-POST of the same session
+  /// (e.g. a retried webhook) can never create a duplicate payment row.
+  stripeSessionId        String? @unique
+  stripePaymentIntentId  String?
+
+  amountCents Int
+  currency    String        @default("usd")
+  status      PaymentStatus @default(PENDING)
+
+  createdAt DateTime  @default(now())
+  paidAt    DateTime?
+
+  @@index([contractId])
+  @@index([status])
 }
 
 /// A captured lead — from the summary form, contact cards, or a booking request.

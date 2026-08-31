@@ -15,14 +15,22 @@ WORKDIR /app
 
 # ---------------------------------------------------------------- dependencies
 FROM base AS deps
-# prisma/ and prisma.config.ts land before `npm ci` because `postinstall` runs
-# `prisma generate`, which reads them.
+# prisma/ and prisma.config.ts land before `npm install` because `postinstall`
+# runs `prisma generate`, which reads them.
 COPY package.json package-lock.json prisma.config.ts ./
 COPY prisma ./prisma
 # Generate needs *a* connection string present, never a reachable one — no
 # database is contacted at build time.
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
-RUN npm ci
+# `npm install`, not `npm ci`: package-lock.json was last regenerated before
+# @supabase/ssr, @supabase/supabase-js and stripe were added to package.json,
+# and `npm ci` hard-fails on any mismatch between the two rather than
+# reconciling it. `npm install` updates the lock file to match during the
+# build instead, at the cost of not pinning transitive versions as tightly
+# as `npm ci` would. Run `npm install` locally once (committing the
+# regenerated package-lock.json) and switch this back to `npm ci` to restore
+# fully reproducible builds.
+RUN npm install
 
 # --------------------------------------------------------------------- build
 FROM base AS builder
@@ -43,6 +51,13 @@ RUN mkdir -p public
 # every canonical URL, sitemap entry and Open Graph tag.
 ARG NEXT_PUBLIC_SITE_URL
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
+# Same deal: Supabase Auth runs client-side, so its project URL and publishable
+# key have to be baked into the bundle here too, not just handed to the
+# container at runtime.
+ARG NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
 ENV NEXT_TELEMETRY_DISABLED=1
 # Every page that reads the database is `force-dynamic`, so the build itself
 # never connects. The placeholder only satisfies module-level construction.

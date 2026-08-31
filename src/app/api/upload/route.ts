@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { getCurrentUser } from "@/lib/session-user";
 
 export const maxDuration = 60;
 
@@ -57,11 +58,14 @@ export async function POST(request: Request) {
     );
   }
 
+  const user = await getCurrentUser();
+  if (!user) return Response.json({ error: "Sign in required." }, { status: 401 });
+
   const session = await prisma.discoverySession.findUnique({
     where: { publicId: sessionPublicId },
-    select: { id: true },
+    select: { id: true, userId: true },
   });
-  if (!session) {
+  if (!session || session.userId !== user.id) {
     return Response.json({ error: "Session not found" }, { status: 404 });
   }
 

@@ -5,6 +5,7 @@ import { ARCHITECT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { extractAnalysis } from "@/lib/ai/analysis";
 import { prisma } from "@/lib/prisma";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { getCurrentUser } from "@/lib/session-user";
 
 export const maxDuration = 120;
 
@@ -59,13 +60,22 @@ export async function POST(request: Request) {
     );
   }
 
+  // Defence in depth — the proxy already requires a signed-in user here.
+  // Without this check (and the ownership comparison below), any signed-in
+  // client could POST into any other client's session just by knowing its
+  // publicId, which is exactly the leak this whole feature exists to close.
+  const user = await getCurrentUser();
+  if (!user) return Response.json({ error: "Sign in required." }, { status: 401 });
+
   const { sessionId, attachmentIds, resume } = parsed.data;
 
   const session = await prisma.discoverySession.findUnique({
     where: { publicId: sessionId },
     include: { messages: { orderBy: { createdAt: "asc" } } },
   });
-  if (!session) {
+  // "Not found" either way — a session that exists but belongs to someone
+  // else must not be distinguishable from one that doesn't exist.
+  if (!session || session.userId !== user.id) {
     return Response.json({ error: "Session not found" }, { status: 404 });
   }
 

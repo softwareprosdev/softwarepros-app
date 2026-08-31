@@ -6,6 +6,8 @@ import { Icon } from "@/components/Icon";
 import { Wordmark } from "@/components/SiteNav";
 import { SummaryActions } from "@/components/summary/SummaryActions";
 import { LeadForm } from "@/components/summary/LeadForm";
+import { BuildContractButton } from "@/components/summary/BuildContractButton";
+import { getCurrentUser } from "@/lib/session-user";
 import { COMPONENT_ICONS, PRIORITIES } from "@/lib/ai/schemas";
 import type { Requirement, Summary } from "@/lib/ai/schemas";
 
@@ -275,6 +277,12 @@ export default async function ProjectSummaryPage({
   });
 
   if (!summary) notFound();
+
+  // Summaries stay shareable-by-link (see the metadata note above), but
+  // building a contract from one is not — only the client who owns the
+  // underlying session can start pricing on it.
+  const user = await getCurrentUser();
+  const isOwner = user?.id === summary.session.userId;
 
   const components = toComponents(summary.components);
   const requirements = toRequirementGroups(summary.requirements);
@@ -588,6 +596,8 @@ export default async function ProjectSummaryPage({
                 </p>
               </div>
             </section>
+
+            {isOwner && <BuildContractButton summaryId={summary.publicId} />}
 
             <LeadForm summaryId={summary.publicId} />
           </div>

@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { generateSummary } from "@/lib/ai/analysis";
+import { estimateProjectCost } from "@/lib/ai/estimate";
 import { hasAnthropicCredentials } from "@/lib/ai/client";
 import { publicId } from "@/lib/ids";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { getCurrentUser } from "@/lib/session-user";
 
 export const maxDuration = 300;
 
@@ -33,11 +35,20 @@ export async function POST(request: Request) {
     );
   }
 
+  // The proxy already requires a signed-in user for this path; this is the
+  // defence-in-depth check plus the actual ownership check the proxy can't
+  // do on its own (see api/admin/leads/[id]/route.ts for the same pattern).
+  const user = await getCurrentUser();
+  if (!user) return Response.json({ error: "Sign in required." }, { status: 401 });
+
   const session = await prisma.discoverySession.findUnique({
     where: { publicId: parsed.data.sessionId },
     include: { messages: { orderBy: { createdAt: "asc" } } },
   });
-  if (!session) {
+  // Reports "not found" rather than "forbidden" either way — a session that
+  // exists but belongs to someone else must not be distinguishable from one
+  // that doesn't exist at all.
+  if (!session || session.userId !== user.id) {
     return Response.json({ error: "Session not found" }, { status: 404 });
   }
   if (session.messages.length < 2) {
@@ -55,6 +66,16 @@ export async function POST(request: Request) {
       session.messages.map((m) => ({ role: m.role, content: m.content })),
     );
 
+    // Best-effort: a cost-draft failure must never block the summary itself.
+    // The contract flow re-checks for a missing estimate and refuses to
+    // proceed rather than silently defaulting to $0 — see api/contracts.
+    let estimate: { lowCents: number; highCents: number; notes: string } | null = null;
+    try {
+      estimate = await estimateProjectCost(summary);
+    } catch (error) {
+      console.error("[summary] cost estimate failed", error);
+    }
+
     const created = await prisma.projectSummary.create({
       data: {
         publicId: publicId(),
@@ -70,6 +91,9 @@ export async function POST(request: Request) {
         techStack: summary.techStack,
         phases: summary.phases,
         modules: summary.modules,
+        estimatedLowCents: estimate?.lowCents,
+        estimatedHighCents: estimate?.highCents,
+        estimateNotes: estimate?.notes,
       },
       select: { publicId: true },
     });

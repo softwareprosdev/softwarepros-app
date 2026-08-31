@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
-import { readOwnerToken } from "@/lib/session-owner";
+import { getCurrentUser } from "@/lib/session-user";
 import { DiscoveryWorkspace } from "@/components/discovery/DiscoveryWorkspace";
 import type { SessionAnalysis, ChatMessage } from "@/components/discovery/types";
 
@@ -26,6 +26,13 @@ export default async function DiscoverySessionPage({
   const { id } = await params;
   const { mode } = await searchParams;
 
+  // The proxy already requires a signed-in user for /discovery/*; this is
+  // the ownership check it can't do on its own. Without it, any signed-in
+  // client who obtains another client's session link (forwarded, leaked,
+  // guessed) could read their entire AI Architect conversation.
+  const user = await getCurrentUser();
+  if (!user) notFound();
+
   const session = await prisma.discoverySession.findUnique({
     where: { publicId: id },
     include: {
@@ -35,19 +42,17 @@ export default async function DiscoverySessionPage({
     },
   });
 
-  if (!session) notFound();
+  // Reports "not found" rather than "forbidden" either way — a session that
+  // exists but belongs to someone else must not be distinguishable from one
+  // that doesn't exist at all.
+  if (!session || session.userId !== user.id) notFound();
 
-  // Scoped to this browser's owner token — the sidebar must never surface
-  // another visitor's conversations.
-  const ownerToken = await readOwnerToken();
-  const recent = ownerToken
-    ? await prisma.discoverySession.findMany({
-        where: { ownerToken, messages: { some: {} } },
-        orderBy: { updatedAt: "desc" },
-        take: 8,
-        select: { publicId: true, title: true, industry: true, updatedAt: true },
-      })
-    : [];
+  const recent = await prisma.discoverySession.findMany({
+    where: { userId: user.id, messages: { some: {} } },
+    orderBy: { updatedAt: "desc" },
+    take: 8,
+    select: { publicId: true, title: true, industry: true, updatedAt: true },
+  });
 
   const analysis: SessionAnalysis = {
     industry: session.industry,

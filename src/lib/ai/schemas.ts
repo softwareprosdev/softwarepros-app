@@ -128,3 +128,29 @@ export const SummarySchema = z.object({
 });
 
 export type Summary = z.infer<typeof SummarySchema>;
+
+/**
+ * Draft cost estimate for a project summary. This is a starting point for a
+ * human architect's review — never shown to a client directly, and never the
+ * only thing standing between an AI number and a signed, paid contract. See
+ * lib/ai/estimate.ts and the PENDING_REVIEW step in api/contracts/route.ts.
+ */
+export const EstimateSchema = z.object({
+  lowCents: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe("Low end of the estimated total project cost, in whole US cents"),
+  highCents: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe("High end of the estimated total project cost, in whole US cents"),
+  notes: z
+    .string()
+    .describe(
+      "For the reviewing architect only: the assumptions and reasoning behind this range — scope drivers, integration risk, anything that could move the number.",
+    ),
+});
+
+export type Estimate = z.infer<typeof EstimateSchema>;

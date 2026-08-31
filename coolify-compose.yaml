@@ -21,9 +21,12 @@
 #     https://your-domain.com:3000  (the :3000 tells Coolify where to route;
 #     it is not part of the public URL)
 #   - Environment variables: DATABASE_URL, DIRECT_URL, ANTHROPIC_API_KEY,
-#     ADMIN_USER, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL (and the ELEVENLABS_*
-#     trio for voice). NEXT_PUBLIC_SITE_URL must also be marked a Build
-#     Variable.
+#     ADMIN_USER, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL, NEXT_PUBLIC_SUPABASE_URL,
+#     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, STRIPE_SECRET_KEY,
+#     STRIPE_WEBHOOK_SECRET (and the ELEVENLABS_* trio for voice).
+#     NEXT_PUBLIC_SITE_URL, NEXT_PUBLIC_SUPABASE_URL and
+#     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY must also be marked Build Variables
+#     — see the ARG/ENV pairs in Dockerfile for why.
 #
 #     DATABASE_URL and DIRECT_URL are deliberately different connections:
 #     DATABASE_URL is the app's pooled runtime connection (e.g. Supabase's
@@ -34,6 +37,12 @@
 #     A transaction-mode pooler can't hold the advisory lock `migrate deploy`
 #     needs, so pointing DIRECT_URL at one makes the migration hang forever
 #     rather than fail, and the container never becomes healthy.
+#
+#     NEXT_PUBLIC_SUPABASE_URL / _PUBLISHABLE_KEY are the same Supabase
+#     project as DATABASE_URL — from Project Settings -> API. STRIPE_SECRET_KEY
+#     and STRIPE_WEBHOOK_SECRET come from the Stripe dashboard; start both in
+#     Stripe's test mode and confirm a full sign -> pay -> webhook round trip
+#     before ever switching to live keys.
 
 networks:
   # Coolify's Traefik proxy and its managed Postgres both live here. A stack
@@ -50,6 +59,8 @@ services:
       args:
         # Inlined into the client bundle at build time. Runtime is too late.
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
     image: softwarepros-app:latest
     restart: unless-stopped
     networks:
@@ -62,6 +73,10 @@ services:
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
       ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-}

@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { publicId } from "@/lib/ids";
-import { ensureOwnerToken, readOwnerToken } from "@/lib/session-owner";
+import { ensureOwnerToken } from "@/lib/session-owner";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { logDbFailure } from "@/lib/db-errors";
+import { getCurrentUser } from "@/lib/session-user";
 
 const CreateSession = z.object({
   message: z.string().trim().max(20_000).optional(),
@@ -32,6 +33,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
+  // Defence in depth — the proxy already requires a signed-in user here.
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
   const message = parsed.data.message?.trim();
   const ownerToken = await ensureOwnerToken();
 
@@ -40,6 +47,7 @@ export async function POST(request: Request) {
       data: {
         publicId: publicId(),
         ownerToken,
+        userId: user.id,
         title: message ? message.slice(0, 60) : "New Discovery",
         messages: message
           ? { create: [{ role: "USER", content: message }] }
@@ -66,15 +74,16 @@ export async function POST(request: Request) {
 }
 
 /**
- * Recent sessions for the discovery sidebar — scoped to the calling browser.
- * Without the owner filter this would expose every visitor's conversations.
+ * Recent sessions for the discovery sidebar — scoped to the signed-in
+ * client. Without the userId filter this would expose every client's
+ * conversations to every other client.
  */
 export async function GET() {
-  const ownerToken = await readOwnerToken();
-  if (!ownerToken) return NextResponse.json({ sessions: [] });
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ sessions: [] });
 
   try {
-    return NextResponse.json({ sessions: await recentSessions(ownerToken) });
+    return NextResponse.json({ sessions: await recentSessions(user.id) });
   } catch (error) {
     // The sidebar's session history is a convenience, not the feature. If the
     // database is unreachable, an empty list degrades gracefully; failing the
@@ -84,9 +93,9 @@ export async function GET() {
   }
 }
 
-function recentSessions(ownerToken: string) {
+function recentSessions(userId: string) {
   return prisma.discoverySession.findMany({
-    where: { ownerToken },
+    where: { userId },
     orderBy: { updatedAt: "desc" },
     take: 12,
     select: {
