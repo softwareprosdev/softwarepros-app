@@ -30,7 +30,7 @@ ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 # as `npm ci` would. Run `npm install` locally once (committing the
 # regenerated package-lock.json) and switch this back to `npm ci` to restore
 # fully reproducible builds.
-RUN npm install
+RUN npm ci
 
 # --------------------------------------------------------------------- build
 FROM base AS builder
