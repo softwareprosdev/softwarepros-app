@@ -5,6 +5,7 @@ import { JsonLd } from "@/components/JsonLd";
 import { pageSchema } from "@/lib/schema";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
+import { ORG_EMAIL } from "@/lib/org";
 
 export const metadata: Metadata = pageMetadata({
   path: "/legal/privacy",
@@ -38,7 +39,7 @@ const SECTIONS = [
   {
     title: "Your choices",
     body: [
-      "Email hello@softwarepros.org to ask what we hold about you, to correct it, or to have it deleted. Newsletter emails can be unsubscribed from at any time.",
+      `Email ${ORG_EMAIL} to ask what we hold about you, to correct it, or to have it deleted. Newsletter emails can be unsubscribed from at any time.`,
     ],
   },
   {
@@ -100,7 +101,7 @@ export default function PrivacyPage() {
 
             <p className="text-sm text-gray-600 mt-16">
               Questions? <Link href="/contact" className="underline hover:text-gray-400">Contact us</Link> or email
-              hello@softwarepros.org. See also our{" "}
+              {" "}{ORG_EMAIL}. See also our{" "}
               <Link href="/legal/terms" className="underline hover:text-gray-400">
                 terms of service
               </Link>

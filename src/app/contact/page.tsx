@@ -237,7 +237,7 @@ export default async function ContactPage({ searchParams }: PageProps<"/contact"
                     </span>
                   </Link>
                   <a
-                    href="mailto:hello@softwarepros.org"
+                    href={`mailto:${ORG_EMAIL}`}
                     className="glass-card p-6 rounded-hex flex flex-col hover:border-white/20 transition-colors"
                   >
                     <Icon
@@ -246,7 +246,7 @@ export default async function ContactPage({ searchParams }: PageProps<"/contact"
                     />
                     <span className="font-bold mb-2">Email us directly</span>
                     <span className="text-gray-500 text-xs">
-                      hello@softwarepros.org — for NDAs, RFPs, and anything that
+                      {ORG_EMAIL} — for NDAs, RFPs, and anything that
                       doesn&apos;t fit in a form.
                     </span>
                   </a>
