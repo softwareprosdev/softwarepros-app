@@ -9,7 +9,9 @@ const LeadRequest = z.object({
   phone: z.string().trim().max(50).optional().or(z.literal("")),
   timeline: z.string().trim().max(100).optional().or(z.literal("")),
   message: z.string().trim().max(5_000).optional().or(z.literal("")),
-  source: z.enum(["summary", "contact", "assessment", "schedule"]).default("contact"),
+  source: z
+    .enum(["summary", "contact", "assessment", "schedule", "discovery"])
+    .default("contact"),
   sessionId: z.string().optional(),
   summaryId: z.string().optional(),
   // Honeypot: real users never fill this in.
