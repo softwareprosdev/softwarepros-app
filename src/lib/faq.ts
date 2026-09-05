@@ -1,4 +1,5 @@
 import type { FaqEntry } from "@/lib/schema";
+import { ORG_EMAIL } from "@/lib/org";
 
 /**
  * Answer content for AEO / generative search.
@@ -157,12 +158,12 @@ export const CAREERS_FAQS: FaqEntry[] = [
   {
     question: "Is SoftwarePros hiring?",
     answer:
-      "SoftwarePros does not list open roles on this site. Speculative applications are still welcome: email hello@softwarepros.org with what you have built, and an engineer reads it. There is no application portal and no requisition list to check — the inbox is the process, and a strong message describing real systems is worth more than a posting to reply to.",
+      `SoftwarePros does not list open roles on this site. Speculative applications are still welcome: email ${ORG_EMAIL} with what you have built, and an engineer reads it. There is no application portal and no requisition list to check — the inbox is the process, and a strong message describing real systems is worth more than a posting to reply to.`,
   },
   {
     question: "How do I apply to SoftwarePros?",
     answer:
-      "Applications to SoftwarePros go to hello@softwarepros.org. Lead with what you have built — systems you designed, code you can show, problems you owned from architecture through production — rather than a list of technologies. Because no roles are posted, say plainly what kind of work you want and which of the disciplines and industries the firm works in you want to do it in.",
+      `Applications to SoftwarePros go to ${ORG_EMAIL}. Lead with what you have built — systems you designed, code you can show, problems you owned from architecture through production — rather than a list of technologies. Because no roles are posted, say plainly what kind of work you want and which of the disciplines and industries the firm works in you want to do it in.`,
   },
   {
     question: "What does SoftwarePros look for in engineers?",
@@ -189,7 +190,7 @@ export const CONTACT_FAQS: FaqEntry[] = [
   {
     question: "How do I request a security assessment?",
     answer:
-      "Submit the contact form with the assessment intent, or email hello@softwarepros.org describing the application or environment you want examined and any deadline you are working against. The reply comes from an engineer, and the first conversation is about scope rather than a sales pitch.",
+      `Submit the contact form with the assessment intent, or email ${ORG_EMAIL} describing the application or environment you want examined and any deadline you are working against. The reply comes from an engineer, and the first conversation is about scope rather than a sales pitch.`,
   },
   {
     question: "What happens after I get in touch?",
@@ -199,6 +200,6 @@ export const CONTACT_FAQS: FaqEntry[] = [
   {
     question: "Do I have to talk to the AI first?",
     answer:
-      "No. The AI Discovery Center is the fastest way to arrive with a defined scope, but the contact form and hello@softwarepros.org reach a person directly. Email is the right channel for NDAs, RFPs, and anything that does not fit in a form.",
+      `No. The AI Discovery Center is the fastest way to arrive with a defined scope, but the contact form and ${ORG_EMAIL} reach a person directly. Email is the right channel for NDAs, RFPs, and anything that does not fit in a form.`,
   },
 ];
