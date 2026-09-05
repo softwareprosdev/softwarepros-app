@@ -4,13 +4,15 @@ import { isAuthorized, unauthorizedResponse } from "@/lib/auth";
 import { updateSession } from "@/lib/supabase/middleware";
 
 /**
- * Page routes a signed-in client account is required for. `/discovery` so
- * one visitor's AI conversation is never reachable by another; `/contract`
- * so a payable, signable contract is never reachable by anyone but the
- * client it was drafted for (ownership itself is still re-checked in each
- * route/page — this only gates "is anyone signed in at all").
+ * Page routes a signed-in client account is required for. `/contract` so a
+ * payable, signable contract is never reachable by anyone but the client it
+ * was drafted for (ownership itself is still re-checked in each route/page —
+ * this only gates "is anyone signed in at all"). `/discovery` itself is a
+ * public intake form and deliberately absent — only `/discovery/<id>`, the
+ * legacy AI conversation workspace, is gated below, so one visitor's
+ * conversation is never reachable by another.
  */
-const AUTH_REQUIRED_PAGE_PREFIXES = ["/discovery", "/contract", "/account"];
+const AUTH_REQUIRED_PAGE_PREFIXES = ["/contract", "/account"];
 
 /**
  * API routes requiring the same. `/api/webhooks` is deliberately absent —
@@ -46,6 +48,7 @@ export async function proxy(request: NextRequest): Promise<Response> {
 
   const needsAuth =
     matchesPrefix(pathname, AUTH_REQUIRED_PAGE_PREFIXES) ||
+    pathname.startsWith("/discovery/") ||
     matchesPrefix(pathname, AUTH_REQUIRED_API_PREFIXES);
 
   if (needsAuth && !user) {
