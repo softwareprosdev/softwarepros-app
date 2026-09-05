@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/metadata";
 import Link from "next/link";
-import Image from "next/image";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { FloatingAIButton } from "@/components/FloatingAIButton";
@@ -38,9 +37,7 @@ const DISCOVERY_PANELS = [
   {
     kicker: "AI Conversation",
     title: "Project Scoping",
-    image:
-      "https://storage.googleapis.com/uxpilot-auth.appspot.com/gen_b07ab13f12_83d90ed1cfc711fe.png",
-    alt: "Dark-mode software architecture dashboard with code editor and blueprint wireframes",
+    icon: "comments",
     features: [
       { icon: "microphone", title: "Voice Input", body: "Describe your project verbally" },
       { icon: "keyboard", title: "Text Input", body: "Type detailed requirements" },
@@ -49,9 +46,7 @@ const DISCOVERY_PANELS = [
   {
     kicker: "Document Analysis",
     title: "Upload Review",
-    image:
-      "https://storage.googleapis.com/uxpilot-auth.appspot.com/gen_fb7d67d3b3_4dd54369c71cb867.png",
-    alt: "Document scanning interface with AI analysis overlay and technical diagrams",
+    icon: "file-arrow-up",
     features: [
       { icon: "file-arrow-up", title: "Upload Documents", body: "Share specs and briefs" },
       { icon: "image", title: "Image Upload", body: "Paste screenshots and designs" },
@@ -61,8 +56,7 @@ const DISCOVERY_PANELS = [
 
 const SECURITY_TILES = [
   {
-    src: "https://storage.googleapis.com/uxpilot-auth.appspot.com/gen_926e60524e_b6489012aec07303.png",
-    alt: "Cyber operations centre with threat maps on multiple monitors",
+    icon: "radar",
     span: "md:col-span-8",
     aspect: "aspect-video",
     kicker: "Active Threat Detection",
@@ -70,29 +64,33 @@ const SECURITY_TILES = [
     quickview: true,
   },
   {
-    src: "https://storage.googleapis.com/uxpilot-auth.appspot.com/gen_797fd79bf5_6108e9822d2b7ee6.png",
-    alt: "Abstract zero-trust architecture with interconnected glowing nodes",
+    icon: "fingerprint",
     span: "md:col-span-4",
     aspect: "aspect-video",
+    kicker: "Zero Trust",
+    title: "Verified Access",
     quickview: true,
   },
   {
-    src: "https://storage.googleapis.com/uxpilot-auth.appspot.com/gen_866b94cdec_a7cbfbdc79db64b5.png",
-    alt: "Encrypted code scrolling on a dark screen",
+    icon: "shield-halved",
     span: "md:col-span-3",
     aspect: "aspect-video",
+    kicker: "Encryption",
+    title: "Data At Rest & In Transit",
   },
   {
-    src: "https://storage.googleapis.com/uxpilot-auth.appspot.com/gen_d95bcb1981_bf0d15a605c86002.png",
-    alt: "Network firewall visualisation with glowing barriers and blue data streams",
+    icon: "network-wired",
     span: "md:col-span-6",
     aspect: "aspect-video",
+    kicker: "Perimeter Defense",
+    title: "Network Firewalls",
   },
   {
-    src: "https://storage.googleapis.com/uxpilot-auth.appspot.com/gen_11dd7e4e15_e0b69702ce82e605.png",
-    alt: "Biometric fingerprint authentication concept",
+    icon: "user-secret",
     span: "md:col-span-3",
     aspect: "aspect-video",
+    kicker: "Identity",
+    title: "Biometric Auth",
   },
 ];
 
@@ -289,7 +287,18 @@ export default function HomePage() {
                   }`}
                 >
                   <div className="md:w-1/2 w-full">
-                    <div className="aspect-video bg-gray-900 rounded-xl overflow-hidden relative group">
+                    <div className="aspect-video bg-gray-900 rounded-xl overflow-hidden relative group border border-white/5">
+                      <div
+                        className="absolute inset-0 opacity-40 [background-image:radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.15)_1px,transparent_0)] [background-size:28px_28px]"
+                        aria-hidden="true"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-br from-blue-950/40 via-transparent to-indigo-950/30" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Icon
+                          name={panel.icon}
+                          className="text-7xl text-white/10 group-hover:text-white/20 group-hover:scale-105 transition-all duration-700"
+                        />
+                      </div>
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10" />
                       <div className="absolute bottom-6 left-6 z-20">
                         <span className="text-xs font-bold uppercase tracking-widest text-gray-400">
@@ -297,13 +306,6 @@ export default function HomePage() {
                         </span>
                         <h3 className="text-2xl font-bold">{panel.title}</h3>
                       </div>
-                      <Image
-                        src={panel.image}
-                        alt={panel.alt}
-                        fill
-                        sizes="(max-width: 768px) 100vw, 50vw"
-                        className="object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
-                      />
                     </div>
                   </div>
                   <div className="md:w-1/2 space-y-8">
@@ -377,17 +379,20 @@ export default function HomePage() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
               {SECURITY_TILES.map((tile) => (
                 <div
-                  key={tile.src}
-                  className={`${tile.span} ${tile.aspect} rounded-hex overflow-hidden relative group`}
+                  key={tile.title}
+                  className={`${tile.span} ${tile.aspect} rounded-hex overflow-hidden relative group border border-white/5 bg-gradient-to-br from-blue-950/40 via-[#0a0a12] to-red-950/30`}
                 >
-                  <Image
-                    src={tile.src}
-                    alt={tile.alt}
-                    fill
-                    sizes="(max-width: 768px) 100vw, 50vw"
-                    className="object-cover"
+                  <div
+                    className="absolute inset-0 opacity-30 [background-image:radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.15)_1px,transparent_0)] [background-size:22px_22px]"
+                    aria-hidden="true"
                   />
-                  <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Icon
+                      name={tile.icon}
+                      className="text-6xl text-white/10 group-hover:text-white/20 group-hover:scale-105 transition-all duration-700"
+                    />
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent group-hover:from-black/40 transition-colors" />
                   {tile.kicker && (
                     <div className="absolute bottom-6 left-6">
                       <span className="text-xs font-bold uppercase tracking-widest text-red-400">
