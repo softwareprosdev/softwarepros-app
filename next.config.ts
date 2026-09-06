@@ -90,6 +90,21 @@ const nextConfig: NextConfig = {
             key: "Strict-Transport-Security",
             value: "max-age=63072000; includeSubDomains; preload",
           },
+          // Severs the opener relationship with any page that opened this one,
+          // so a link out (or a link in) cannot reach back through
+          // window.opener, and the tab gets its own browsing context group.
+          // Safe here because nothing in this app authenticates via a popup —
+          // signup and login are same-tab form posts to Supabase.
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          // Other sites cannot pull this origin's responses in as
+          // subresources. `same-site` rather than `same-origin` so a future
+          // asset subdomain keeps working; share-card crawlers fetch
+          // server-side and are unaffected either way.
+          { key: "Cross-Origin-Resource-Policy", value: "same-site" },
+          // No Flash/Acrobat cross-domain policy file is served, or wanted.
+          { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+          // No speculative DNS lookups to third parties from page content.
+          { key: "X-DNS-Prefetch-Control", value: "off" },
         ],
       },
       {

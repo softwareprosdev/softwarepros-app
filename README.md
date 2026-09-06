@@ -551,17 +551,38 @@ invented claim is not a typo but a policy violation.
   wrong. It is enforced in `src/proxy.ts` **and** re-checked inside each admin route handler, and
   it fails closed when `ADMIN_PASSWORD` is unset.
 - **Rate limiting.** `src/lib/rate-limit.ts` applies in-memory fixed windows per client — chat and
-  upload at 20/min, leads at 10/min — bounded to 10,000 keys. It is a speed bump against casual
-  abuse and runaway model spend, not an access control: `x-forwarded-for` is spoofable unless a
-  trusted proxy sets it. **It does not survive restarts and does not coordinate across instances —
-  put a shared store behind the same interface before scaling past one replica.**
+  upload at 20/min, leads at 10/min — bounded to 10,000 keys. The client key reads
+  `cf-connecting-ip` first, then `x-real-ip`, then the first `x-forwarded-for` hop: behind
+  Cloudflare the first of those is set from the terminated connection and overwrites whatever the
+  client sent, while `x-forwarded-for` alone can be rotated per request, which bought a fresh
+  bucket every time and made the limit count floods rather than stop them. Still not an access
+  control — off Cloudflare it is a speed bump against casual abuse and runaway model spend.
+  **It does not survive restarts and does not coordinate across instances — put a shared store
+  behind the same interface before scaling past one replica.**
+- **Request body ceilings.** The unauthenticated JSON endpoints (`/api/leads`, `/api/newsletter`)
+  read through `src/lib/read-json.ts`, which enforces a byte cap while reading and cancels the
+  stream once it is exceeded. Zod cannot defend against a body it never sees: `request.json()`
+  buffers everything first, so schema limits alone left an anonymous caller free to make the server
+  hold an arbitrarily large body in memory. Uploads are capped separately at 10 MB, and the voice
+  routes cap text at 2,500 characters and audio at 8 MB.
+- **Slow-HTTP (Slowloris) exhaustion** is absorbed at the edge: Cloudflare terminates client
+  connections and only forwards complete requests, so a partial-header or drip-fed body never
+  reaches the origin. Node's own `headersTimeout` (60s) and `requestTimeout` (300s) defaults bound
+  it at the origin as a second line; `next start` does not expose those knobs, and changing them
+  would mean owning a custom server. Keep the origin unreachable except through the edge.
 - **Honeypot.** Lead forms carry a hidden field; hits are accepted and dropped silently.
+- **Passwords** must be at least 8 characters, enforced by the `minLength` attribute and re-checked
+  in `SignupForm`'s submit handler before any network call — the NIST SP 800-63B minimum. No
+  composition rules are imposed, which that guidance also asks for. Storage, hashing and breach
+  checks belong to Supabase Auth; set the project's own password policy there to match.
 - **Response headers** (`next.config.ts`, applied to every path): a strict CSP
   (`default-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests`;
   `unsafe-eval` only in development for React Refresh), `X-Content-Type-Options: nosniff`,
   `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`,
-  `Permissions-Policy: camera=(), geolocation=(), microphone=(self)`, and a two-year HSTS with
-  `includeSubDomains; preload`.
+  `Permissions-Policy: camera=(), geolocation=(), microphone=(self)`, a two-year HSTS with
+  `includeSubDomains; preload`, `Cross-Origin-Opener-Policy: same-origin` (no page that opens this
+  one keeps a `window.opener` handle to it), `Cross-Origin-Resource-Policy: same-site`,
+  `X-Permitted-Cross-Domain-Policies: none`, and `X-DNS-Prefetch-Control: off`.
 - **Secrets** never enter the repo. `.env*` is git-ignored except `.env.example`, which holds
   placeholders only.
 

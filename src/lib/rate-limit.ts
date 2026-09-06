@@ -65,13 +65,26 @@ function sweep(now: number) {
 }
 
 /**
- * Best-effort client identity for rate limiting. `x-forwarded-for` is spoofable
- * unless a trusted proxy sets it, so this is a speed bump, not an access
- * control — never make an authorisation decision from it.
+ * Client identity for rate limiting, best available first.
+ *
+ * `cf-connecting-ip` leads because Cloudflare sets it from the connection it
+ * terminated and overwrites any value the client sent, so behind Cloudflare it
+ * is the one hop an attacker cannot forge. `x-forwarded-for` is the opposite:
+ * a client can send it and append to it freely, so keying on it alone meant a
+ * flood could rotate the header and get a fresh bucket per request — the limit
+ * counted attackers rather than stopping them.
+ *
+ * Still not an access control. Off Cloudflare, or behind a proxy that does not
+ * overwrite these, this remains a speed bump against casual abuse and runaway
+ * model spend — never make an authorisation decision from it.
  */
 export function clientKey(request: Request, scope: string) {
-  const forwarded = request.headers.get("x-forwarded-for");
-  const ip = forwarded?.split(",")[0]?.trim() || "unknown";
+  const headers = request.headers;
+  const ip =
+    headers.get("cf-connecting-ip")?.trim() ||
+    headers.get("x-real-ip")?.trim() ||
+    headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "unknown";
   return `${scope}:${ip}`;
 }
 
