@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { readJson } from "@/lib/read-json";
 
 const LeadRequest = z.object({
   name: z.string().trim().min(1).max(200),
@@ -25,7 +26,10 @@ export async function POST(request: Request) {
     return tooManyRequests(limit, "Too many submissions. Try again shortly.");
   }
 
-  const parsed = LeadRequest.safeParse(await request.json().catch(() => null));
+  // Capped before parsing: this endpoint is unauthenticated, and the schema
+  // below cannot reject a body the server has already buffered. 32 KB is far
+  // more than the form's longest field (a 5,000-character message).
+  const parsed = LeadRequest.safeParse(await readJson(request, 32 * 1024));
   if (!parsed.success) {
     return Response.json(
       { error: "Please check the form and try again." },

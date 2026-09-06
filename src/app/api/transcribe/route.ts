@@ -1,5 +1,6 @@
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { transcribeSpeech } from "@/lib/ai/transcribe";
+import { getCurrentUser } from "@/lib/session-user";
 
 /**
  * Transcribes one spoken utterance.
@@ -33,6 +34,14 @@ export async function POST(request: Request) {
   });
   if (!limit.ok) {
     return tooManyRequests(limit, "Too much dictation at once. Try again shortly.");
+  }
+
+  // Defence in depth — the proxy already requires a signed-in user here.
+  // Checked before the upload is read, so an anonymous caller cannot even
+  // push audio at the server, let alone have it transcribed upstream.
+  const user = await getCurrentUser();
+  if (!user) {
+    return Response.json({ error: "Sign in required." }, { status: 401 });
   }
 
   let audio: FormDataEntryValue | null;

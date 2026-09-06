@@ -1,18 +1,12 @@
 import type { Metadata } from "next";
 import { Wordmark } from "@/components/SiteNav";
 import { LoginForm } from "@/components/auth/LoginForm";
+import { safeRedirect } from "@/lib/safe-redirect";
 
 export const metadata: Metadata = {
   title: "Sign In",
   robots: { index: false, follow: false },
 };
-
-/** Only ever a same-site path — an unsanitized redirect target is an open redirect. */
-function safeRedirect(value: string | undefined): string {
-  if (!value) return "/discovery";
-  if (!value.startsWith("/") || value.startsWith("//")) return "/discovery";
-  return value;
-}
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { redirect } = await searchParams;

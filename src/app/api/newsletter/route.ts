@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { readJson } from "@/lib/read-json";
 
 const Body = z.object({ email: z.email().max(320) });
 
@@ -13,7 +14,8 @@ export async function POST(request: Request) {
     return tooManyRequests(limit, "Too many requests. Try again shortly.");
   }
 
-  const parsed = Body.safeParse(await request.json().catch(() => null));
+  // Capped before parsing — unauthenticated, and the body is one email address.
+  const parsed = Body.safeParse(await readJson(request, 4 * 1024));
   if (!parsed.success) {
     return Response.json(
       { error: "Enter a valid email address." },

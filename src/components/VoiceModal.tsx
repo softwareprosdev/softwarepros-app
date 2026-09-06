@@ -6,7 +6,9 @@ import { VoiceOrb, type OrbState } from "@/components/voice/VoiceOrb";
 import { hasRecording, useDictation } from "@/lib/use-dictation";
 import { useSpeech } from "@/lib/use-speech";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Icon } from "@/components/Icon";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * How long a visitor has to go quiet before the architect takes its turn.
@@ -22,6 +24,15 @@ const REPLY_AFTER_SILENCE_MS = 2000;
  */
 const HANDOFF_LINE =
   "Let's take this into the Discovery Center — I'm opening it for you now.";
+
+/**
+ * Where an anonymous visitor is sent. The conversation continues in the
+ * Discovery Center once they have an account, so both links carry it as the
+ * post-auth destination — the same `redirect` param `proxy.ts` sets when it
+ * bounces a signed-out request off a gated page.
+ */
+const SIGNUP_HREF = "/signup?redirect=%2Fdiscovery";
+const LOGIN_HREF = "/login?redirect=%2Fdiscovery";
 
 /**
  * Streams the architect's reply for a session, reporting the text as it
@@ -93,6 +104,13 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   /** The architect's answer, streamed in and spoken before the handoff. */
   const [reply, setReply] = useState("");
+  /**
+   * Whether a client account is signed in. `null` while that is still being
+   * established — the microphone stays shut until it resolves, because every
+   * endpoint this modal drives (transcription, the reply, the spoken audio)
+   * requires an account and each one costs money per call.
+   */
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
   const speech = useSpeech();
   const dictation = useDictation(
@@ -125,6 +143,26 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
 
   useEffect(() => () => stopEverything(), [stopEverything]);
 
+  // Fails closed: an unreachable or unconfigured Supabase resolves to "not
+  // signed in" and the modal offers signup rather than opening the mic on a
+  // conversation the server would refuse anyway.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const {
+          data: { user },
+        } = await createClient().auth.getUser();
+        if (!cancelled) setSignedIn(Boolean(user));
+      } catch {
+        if (!cancelled) setSignedIn(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     if (!listening) return;
     const id = setInterval(() => setElapsed((s) => s + 1), 1000);
@@ -156,11 +194,15 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
   }, [dictationStart]);
 
   // Deferred a tick: `start` flips state as it opens the mic, and doing that
-  // synchronously inside the effect body cascades an extra render.
+  // synchronously inside the effect body cascades an extra render. Held until
+  // the account check resolves — asking for the microphone before knowing
+  // whether the conversation can happen is a permission prompt spent on
+  // nothing.
   useEffect(() => {
+    if (signedIn !== true) return;
     const id = setTimeout(() => void start(), 0);
     return () => clearTimeout(id);
-  }, [start]);
+  }, [start, signedIn]);
 
   const transcript = finalLines.join(" ").trim();
 
@@ -199,6 +241,15 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
       });
+      if (created.status === 401) {
+        // Signed in when the modal opened, signed out by the time it had
+        // something to send. Swap to the signup panel rather than reporting a
+        // failure they cannot act on.
+        setSignedIn(false);
+        submittingRef.current = false;
+        setSubmitting(false);
+        return;
+      }
       if (!created.ok) throw new Error("Could not start the session");
       publicId = ((await created.json()) as { publicId: string }).publicId;
 
@@ -255,6 +306,60 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
       : listening
         ? "Listening…"
         : "Paused";
+
+  if (signedIn === false) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Sign in to talk to the AI Architect"
+        className="fixed inset-0 z-[60] flex items-center justify-center px-6 py-20 overflow-y-auto bg-ink/95 backdrop-blur-sm"
+      >
+        <div className="w-full max-w-lg glass rounded-2xl p-8 border-cyan-500/15">
+          <div className="flex items-start justify-between gap-6 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+                <Icon name="brain" className="text-blue-400" />
+              </div>
+              <h2 className="text-lg font-semibold text-white">
+                Create an account to talk to the AI Architect
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close voice input"
+              className="w-8 h-8 shrink-0 flex items-center justify-center rounded-full border border-white/10 hover:border-white/30 text-gray-400 hover:text-white transition-all"
+            >
+              <Icon name="xmark" className="text-xs" />
+            </button>
+          </div>
+
+          <p className="text-sm text-gray-400 leading-relaxed mb-6">
+            Discovery conversations are private to your account — that is what
+            keeps one client&apos;s project, transcript and contract out of
+            everyone else&apos;s. Signing up takes a moment, and the architect
+            picks up right where you meant to start.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href={SIGNUP_HREF}
+              className="px-6 py-3 rounded-full bg-blue-600 hover:bg-blue-500 text-sm font-semibold text-white transition-colors"
+            >
+              Create an account
+            </Link>
+            <Link
+              href={LOGIN_HREF}
+              className="px-6 py-3 rounded-full glass-dark text-sm text-gray-300 hover:text-white transition-colors"
+            >
+              I already have one
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -426,7 +531,9 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
             onClick={
               listening ? () => void answerAndHandOff() : () => void start()
             }
-            disabled={submitting || (listening && !transcript)}
+            disabled={
+              submitting || signedIn !== true || (listening && !transcript)
+            }
             aria-label={
               listening ? "Stop recording and get an answer" : "Start recording"
             }

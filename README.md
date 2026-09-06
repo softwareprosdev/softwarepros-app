@@ -158,6 +158,8 @@ implied quote.
 | `POST /api/chat` | Streaming architect reply (NDJSON) + live-analysis refresh |
 | `POST /api/upload` | Attach a PDF, image, or text document to a session (10 MB max) |
 | `POST /api/summary` | Generate a project summary from a conversation |
+| `POST /api/speech` | Speak an architect reply via ElevenLabs (sign-in required) |
+| `POST /api/transcribe` | Transcribe one spoken utterance (sign-in required) |
 | `POST /api/leads` | Capture a lead (honeypot-protected, rate limited) |
 | `POST /api/newsletter` | Newsletter subscribe (idempotent) |
 | `PATCH /api/admin/leads/{id}` | Update lead status (auth required) |
@@ -241,7 +243,10 @@ that is committed, and it must never contain a real value.
 | Variable | Required | Purpose | Example / Notes |
 | --- | --- | --- | --- |
 | `DATABASE_URL` | **Yes** | PostgreSQL connection string for Prisma. Read by `src/lib/prisma.ts` and by `prisma.config.ts` for migrations. | `postgresql://user:password@host:5432/softwarepros?schema=public` — the app throws on startup if it is missing. |
-| `ANTHROPIC_API_KEY` | **Yes** in any environment where the AI Discovery Center is used | Credentials for `@anthropic-ai/sdk`. Without it, chat, live analysis, and summary generation all fail. | `sk-ant-…`. The SDK also accepts `ANTHROPIC_AUTH_TOKEN`; `hasAnthropicCredentials()` in `src/lib/ai/client.ts` treats either as configured. |
+| `REQUESTY_API_KEY` | One of this or `ANTHROPIC_API_KEY` in any environment where the AI Discovery Center is used | Routes every AI Architect call through [Requesty](https://requesty.ai), an Anthropic-compatible gateway, instead of calling Anthropic directly. Set it and `src/lib/ai/client.ts` points the SDK at Requesty's base URL with this key; leave it empty and nothing changes. | Requesty dashboard → API Keys. Takes precedence over `ANTHROPIC_API_KEY` when both are set. |
+| `REQUESTY_BASE_URL` | No | Overrides the gateway origin. | Defaults to `https://router.requesty.ai`. Use `https://router.eu.requesty.ai` for EU data residency. Ignored unless `REQUESTY_API_KEY` is set. |
+| `REQUESTY_MODEL` | No | The exact model id sent to the gateway. | Defaults to `anthropic/claude-haiku-5` — Requesty addresses models as `provider/model`, not by the bare Anthropic id. Pin a different id here (e.g. `anthropic/claude-sonnet-5`) if the default stops resolving. Ignored unless `REQUESTY_API_KEY` is set. |
+| `ANTHROPIC_API_KEY` | One of this or `REQUESTY_API_KEY` in any environment where the AI Discovery Center is used | Credentials for `@anthropic-ai/sdk` on the direct route. Without either key, chat, live analysis, and summary generation all fail. | `sk-ant-…`. The SDK also accepts `ANTHROPIC_AUTH_TOKEN`; `hasAiCredentials()` in `src/lib/ai/client.ts` treats either as configured. |
 | `ADMIN_USER` | No | HTTP Basic username for `/admin/*` and `/api/admin/*`. | Defaults to `admin` when unset. |
 | `ADMIN_PASSWORD` | **Yes** if you want an admin area at all | HTTP Basic password, compared timing-safely in `src/lib/auth.ts`. | A long random string. **See the fail-closed note below.** |
 | `NEXT_PUBLIC_SITE_URL` | **Yes** in production | The site's canonical public origin, with no trailing slash. | `https://softwarepros.org`. Falls back to `https://softwarepros.org` if unset — which silently produces wrong URLs on any other host. **See the note below.** |
@@ -346,7 +351,10 @@ Add every variable from the [table above](#environment-variables) in Coolify's
 | --- | --- | --- |
 | `NEXT_PUBLIC_SITE_URL` | **Yes — inlined into the bundle** | Yes |
 | `DATABASE_URL` | Yes (migrations run on deploy; also read during any static generation) | **Yes** |
-| `ANTHROPIC_API_KEY` | No | **Yes** |
+| `REQUESTY_API_KEY` | No | **Yes**, unless `ANTHROPIC_API_KEY` is used instead |
+| `REQUESTY_BASE_URL` | No | Optional |
+| `REQUESTY_MODEL` | No | Optional |
+| `ANTHROPIC_API_KEY` | No | **Yes**, unless `REQUESTY_API_KEY` is used instead |
 | `ADMIN_USER` | No | Yes |
 | `ADMIN_PASSWORD` | No | **Yes** |
 | `ELEVENLABS_API_KEY` | No | Only if you want voice output |
@@ -399,7 +407,7 @@ Then verify by eye:
 - `/.well-known/security.txt` — `Expires` is roughly a year out and `Canonical` matches your domain
 - `/admin/leads` — prompts for Basic auth, and returns `401` if you cancel
 - Response headers include `Content-Security-Policy`, `Strict-Transport-Security`, and `X-Frame-Options: DENY`
-- Start a discovery session and send one message — this is the only end-to-end check that `ANTHROPIC_API_KEY` and `DATABASE_URL` are both live
+- Start a discovery session and send one message — this is the only end-to-end check that the AI key (`REQUESTY_API_KEY` or `ANTHROPIC_API_KEY`) and `DATABASE_URL` are both live
 
 ---
 
@@ -489,7 +497,34 @@ invented claim is not a typo but a policy violation.
 
 ## Security notes
 
+- **Database access is closed at the database.** `prisma/migrations/20260906120000_rls_lockdown`
+  enables Row Level Security on every table with **no policies**, and revokes all privileges on
+  them from the `anon` and `authenticated` Postgres roles — the two roles the browser reaches with
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, which ships in the client bundle by design. This matters
+  because Prisma creates its tables in `public`, the schema Supabase serves over PostgREST: before
+  that migration, `GET /rest/v1/Lead?select=*` with the published key returned every captured
+  lead's name, email and phone, and the same request against `Message`, `Contract` and `Payment`
+  returned every client's conversation, contract and payment record — straight past `proxy.ts` and
+  every ownership check in the route handlers. The app itself is unaffected: Prisma connects over
+  `DATABASE_URL` as the table owner, and an owner is exempt from RLS unless `FORCE ROW LEVEL
+  SECURITY` is set, which it deliberately is not. Two consequences worth knowing:
+  **(a)** `DATABASE_URL` must point at the role that owns the tables (on Supabase, `postgres` — the
+  role migrations already run as); a non-owner role would see zero rows until policies exist for it.
+  **(b)** every table added later needs RLS enabled in its own migration. The revoked default
+  privileges in that migration cover the grants half automatically, but not RLS.
+- **The AI Architect requires an account**, in every mode. `/api/sessions`, `/api/chat`,
+  `/api/summary`, `/api/upload`, `/api/speech` and `/api/transcribe` are gated in `src/proxy.ts`
+  **and** re-check the signed-in user inside the handler; the voice modal checks before it opens the
+  microphone and offers signup instead. The two voice endpoints matter as much as the text ones:
+  ElevenLabs bills per character, so an unauthenticated caller there is spending money, and the rate
+  limiter below is not an access control.
 - **Input validation.** Every request body is validated with Zod. No handler trusts client input.
+- **Post-login redirects** are resolved through `src/lib/safe-redirect.ts`, which parses the
+  `?redirect=` target the way the browser will and refuses anything that leaves the site's origin.
+  A "starts with `/`, not `//`" check is not sufficient: the URL parser folds a backslash into a
+  slash for http(s) URLs, so `/\evil.example` passes that check as a path and then navigates to
+  `http://evil.example/` — an open redirect on precisely the two pages (`/login`, `/signup`) where
+  a phishing link is most convincing.
 - **One controlled `dangerouslySetInnerHTML`.** `src/components/JsonLd.tsx` uses it to emit the
   schema.org `@graph` — and it is unavoidable there, because React escapes text nodes and that
   escaping corrupts the JSON a crawler parses. What makes it safe is the serializer: `JSON.stringify`
@@ -516,17 +551,38 @@ invented claim is not a typo but a policy violation.
   wrong. It is enforced in `src/proxy.ts` **and** re-checked inside each admin route handler, and
   it fails closed when `ADMIN_PASSWORD` is unset.
 - **Rate limiting.** `src/lib/rate-limit.ts` applies in-memory fixed windows per client — chat and
-  upload at 20/min, leads at 10/min — bounded to 10,000 keys. It is a speed bump against casual
-  abuse and runaway model spend, not an access control: `x-forwarded-for` is spoofable unless a
-  trusted proxy sets it. **It does not survive restarts and does not coordinate across instances —
-  put a shared store behind the same interface before scaling past one replica.**
+  upload at 20/min, leads at 10/min — bounded to 10,000 keys. The client key reads
+  `cf-connecting-ip` first, then `x-real-ip`, then the first `x-forwarded-for` hop: behind
+  Cloudflare the first of those is set from the terminated connection and overwrites whatever the
+  client sent, while `x-forwarded-for` alone can be rotated per request, which bought a fresh
+  bucket every time and made the limit count floods rather than stop them. Still not an access
+  control — off Cloudflare it is a speed bump against casual abuse and runaway model spend.
+  **It does not survive restarts and does not coordinate across instances — put a shared store
+  behind the same interface before scaling past one replica.**
+- **Request body ceilings.** The unauthenticated JSON endpoints (`/api/leads`, `/api/newsletter`)
+  read through `src/lib/read-json.ts`, which enforces a byte cap while reading and cancels the
+  stream once it is exceeded. Zod cannot defend against a body it never sees: `request.json()`
+  buffers everything first, so schema limits alone left an anonymous caller free to make the server
+  hold an arbitrarily large body in memory. Uploads are capped separately at 10 MB, and the voice
+  routes cap text at 2,500 characters and audio at 8 MB.
+- **Slow-HTTP (Slowloris) exhaustion** is absorbed at the edge: Cloudflare terminates client
+  connections and only forwards complete requests, so a partial-header or drip-fed body never
+  reaches the origin. Node's own `headersTimeout` (60s) and `requestTimeout` (300s) defaults bound
+  it at the origin as a second line; `next start` does not expose those knobs, and changing them
+  would mean owning a custom server. Keep the origin unreachable except through the edge.
 - **Honeypot.** Lead forms carry a hidden field; hits are accepted and dropped silently.
+- **Passwords** must be at least 8 characters, enforced by the `minLength` attribute and re-checked
+  in `SignupForm`'s submit handler before any network call — the NIST SP 800-63B minimum. No
+  composition rules are imposed, which that guidance also asks for. Storage, hashing and breach
+  checks belong to Supabase Auth; set the project's own password policy there to match.
 - **Response headers** (`next.config.ts`, applied to every path): a strict CSP
   (`default-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests`;
   `unsafe-eval` only in development for React Refresh), `X-Content-Type-Options: nosniff`,
   `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`,
-  `Permissions-Policy: camera=(), geolocation=(), microphone=(self)`, and a two-year HSTS with
-  `includeSubDomains; preload`.
+  `Permissions-Policy: camera=(), geolocation=(), microphone=(self)`, a two-year HSTS with
+  `includeSubDomains; preload`, `Cross-Origin-Opener-Policy: same-origin` (no page that opens this
+  one keeps a `window.opener` handle to it), `Cross-Origin-Resource-Policy: same-site`,
+  `X-Permitted-Cross-Domain-Policies: none`, and `X-DNS-Prefetch-Control: off`.
 - **Secrets** never enter the repo. `.env*` is git-ignored except `.env.example`, which holds
   placeholders only.
 
