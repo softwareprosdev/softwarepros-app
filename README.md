@@ -519,6 +519,12 @@ invented claim is not a typo but a policy violation.
   ElevenLabs bills per character, so an unauthenticated caller there is spending money, and the rate
   limiter below is not an access control.
 - **Input validation.** Every request body is validated with Zod. No handler trusts client input.
+- **Post-login redirects** are resolved through `src/lib/safe-redirect.ts`, which parses the
+  `?redirect=` target the way the browser will and refuses anything that leaves the site's origin.
+  A "starts with `/`, not `//`" check is not sufficient: the URL parser folds a backslash into a
+  slash for http(s) URLs, so `/\evil.example` passes that check as a path and then navigates to
+  `http://evil.example/` — an open redirect on precisely the two pages (`/login`, `/signup`) where
+  a phishing link is most convincing.
 - **One controlled `dangerouslySetInnerHTML`.** `src/components/JsonLd.tsx` uses it to emit the
   schema.org `@graph` — and it is unavoidable there, because React escapes text nodes and that
   escaping corrupts the JSON a crawler parses. What makes it safe is the serializer: `JSON.stringify`
