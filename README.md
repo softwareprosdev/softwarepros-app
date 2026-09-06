@@ -158,6 +158,8 @@ implied quote.
 | `POST /api/chat` | Streaming architect reply (NDJSON) + live-analysis refresh |
 | `POST /api/upload` | Attach a PDF, image, or text document to a session (10 MB max) |
 | `POST /api/summary` | Generate a project summary from a conversation |
+| `POST /api/speech` | Speak an architect reply via ElevenLabs (sign-in required) |
+| `POST /api/transcribe` | Transcribe one spoken utterance (sign-in required) |
 | `POST /api/leads` | Capture a lead (honeypot-protected, rate limited) |
 | `POST /api/newsletter` | Newsletter subscribe (idempotent) |
 | `PATCH /api/admin/leads/{id}` | Update lead status (auth required) |
@@ -495,6 +497,27 @@ invented claim is not a typo but a policy violation.
 
 ## Security notes
 
+- **Database access is closed at the database.** `prisma/migrations/20260906120000_rls_lockdown`
+  enables Row Level Security on every table with **no policies**, and revokes all privileges on
+  them from the `anon` and `authenticated` Postgres roles — the two roles the browser reaches with
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, which ships in the client bundle by design. This matters
+  because Prisma creates its tables in `public`, the schema Supabase serves over PostgREST: before
+  that migration, `GET /rest/v1/Lead?select=*` with the published key returned every captured
+  lead's name, email and phone, and the same request against `Message`, `Contract` and `Payment`
+  returned every client's conversation, contract and payment record — straight past `proxy.ts` and
+  every ownership check in the route handlers. The app itself is unaffected: Prisma connects over
+  `DATABASE_URL` as the table owner, and an owner is exempt from RLS unless `FORCE ROW LEVEL
+  SECURITY` is set, which it deliberately is not. Two consequences worth knowing:
+  **(a)** `DATABASE_URL` must point at the role that owns the tables (on Supabase, `postgres` — the
+  role migrations already run as); a non-owner role would see zero rows until policies exist for it.
+  **(b)** every table added later needs RLS enabled in its own migration. The revoked default
+  privileges in that migration cover the grants half automatically, but not RLS.
+- **The AI Architect requires an account**, in every mode. `/api/sessions`, `/api/chat`,
+  `/api/summary`, `/api/upload`, `/api/speech` and `/api/transcribe` are gated in `src/proxy.ts`
+  **and** re-check the signed-in user inside the handler; the voice modal checks before it opens the
+  microphone and offers signup instead. The two voice endpoints matter as much as the text ones:
+  ElevenLabs bills per character, so an unauthenticated caller there is spending money, and the rate
+  limiter below is not an access control.
 - **Input validation.** Every request body is validated with Zod. No handler trusts client input.
 - **One controlled `dangerouslySetInnerHTML`.** `src/components/JsonLd.tsx` uses it to emit the
   schema.org `@graph` — and it is unavoidable there, because React escapes text nodes and that

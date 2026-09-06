@@ -22,6 +22,12 @@ const AUTH_REQUIRED_API_PREFIXES = [
   "/api/summary",
   "/api/upload",
   "/api/contracts",
+  // The spoken half of the same AI Architect. These were open to anyone,
+  // which meant the bot could be used without an account through the voice
+  // modal, and that every anonymous visitor could spend ElevenLabs credit
+  // (both are billed per character) as fast as the rate limiter allowed.
+  "/api/speech",
+  "/api/transcribe",
 ];
 
 function matchesPrefix(pathname: string, prefixes: string[]): boolean {
@@ -71,6 +77,8 @@ export const config = {
     "/api/summary/:path*",
     "/api/upload/:path*",
     "/api/contracts/:path*",
+    "/api/speech/:path*",
+    "/api/transcribe/:path*",
     // Session refresh also runs on every other route (marketing pages
     // included) so a client's login never silently expires between visits —
     // everything except static assets and generated image routes.

@@ -271,9 +271,31 @@ export default async function ProjectSummaryPage({
 }: PageProps<"/summary/[id]">) {
   const { id } = await params;
 
+  // Explicitly selected, not `include: { session: true }`. This page is
+  // shareable by link (see the metadata note above), so it must not load what
+  // it does not render: `estimatedLowCents` / `estimatedHighCents` /
+  // `estimateNotes` are the internal, pre-review pricing draft an architect
+  // adjusts before a client ever sees a number, and `session.ownerToken` is a
+  // bearer credential for the underlying conversation. Neither belongs in a
+  // request served on a bare publicId.
   const summary = await prisma.projectSummary.findUnique({
     where: { publicId: id },
-    include: { session: true },
+    select: {
+      publicId: true,
+      title: true,
+      description: true,
+      industry: true,
+      complexity: true,
+      phaseCount: true,
+      nextStep: true,
+      components: true,
+      requirements: true,
+      techStack: true,
+      phases: true,
+      modules: true,
+      createdAt: true,
+      session: { select: { publicId: true, userId: true } },
+    },
   });
 
   if (!summary) notFound();

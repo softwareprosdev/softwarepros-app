@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { synthesizeSpeech } from "@/lib/ai/voice";
+import { getCurrentUser } from "@/lib/session-user";
 
 /**
  * Text to speech for the AI Architect's replies.
@@ -26,6 +27,16 @@ export async function POST(request: Request) {
   });
   if (!limit.ok) {
     return tooManyRequests(limit, "Too many voice requests. Try again shortly.");
+  }
+
+  // Defence in depth — the proxy already requires a signed-in user here.
+  // The AI Architect is an account feature in every mode it has, and the
+  // rate limiter alone is no substitute: it keys on a spoofable
+  // `x-forwarded-for` (see lib/rate-limit.ts), so before this check an
+  // anonymous caller could spend the account's character balance at will.
+  const user = await getCurrentUser();
+  if (!user) {
+    return Response.json({ error: "Sign in required." }, { status: 401 });
   }
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
