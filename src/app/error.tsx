@@ -11,7 +11,7 @@ import { Wordmark } from "@/components/SiteNav";
  * Note the `retry` prop — this version of Next passes `retry`, not the
  * `reset` from older App Router docs. Calling it re-renders the boundary's
  * children, which is a real recovery path here: the failures this catches
- * are mostly transient (a Prisma connection blip, an Anthropic timeout).
+ * are mostly transient (a Prisma connection blip, a Gemini timeout).
  */
 export default function Error({
   error,

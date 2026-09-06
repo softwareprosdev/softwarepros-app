@@ -1,7 +1,8 @@
 import "server-only";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { anthropic, ESTIMATE_MODEL } from "@/lib/ai/client";
+import { gemini, ESTIMATE_MODEL, geminiJsonSchema } from "@/lib/ai/client";
 import { EstimateSchema, type Estimate, type Summary } from "@/lib/ai/schemas";
+
+const ESTIMATE_JSON_SCHEMA = geminiJsonSchema(EstimateSchema);
 
 /**
  * Internal system prompt for the cost-estimate draft — separate from
@@ -25,21 +26,19 @@ Rules:
 
 /** Drafts a cost-estimate range from an already-generated project summary. */
 export async function estimateProjectCost(summary: Summary): Promise<Estimate> {
-  const response = await anthropic.messages.parse({
+  const response = await gemini.models.generateContent({
     model: ESTIMATE_MODEL,
-    max_tokens: 1024,
-    system: ESTIMATE_SYSTEM_PROMPT,
-    output_config: { format: zodOutputFormat(EstimateSchema) },
-    messages: [
-      {
-        role: "user",
-        content: `Draft a cost estimate for this project summary.\n\n<summary>\n${JSON.stringify(summary, null, 2)}\n</summary>`,
-      },
-    ],
+    contents: `Draft a cost estimate for this project summary.\n\n<summary>\n${JSON.stringify(summary, null, 2)}\n</summary>`,
+    config: {
+      systemInstruction: ESTIMATE_SYSTEM_PROMPT,
+      maxOutputTokens: 1024,
+      responseMimeType: "application/json",
+      responseJsonSchema: ESTIMATE_JSON_SCHEMA,
+    },
   });
 
-  if (!response.parsed_output) {
+  if (!response.text) {
     throw new Error("The estimate draft could not be generated.");
   }
-  return response.parsed_output;
+  return EstimateSchema.parse(JSON.parse(response.text));
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic, MODEL, hasAnthropicCredentials } from "@/lib/ai/client";
+import type { Content, Part } from "@google/genai";
+import { gemini, MODEL, hasGeminiCredentials } from "@/lib/ai/client";
 import { ARCHITECT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { extractAnalysis } from "@/lib/ai/analysis";
 import { prisma } from "@/lib/prisma";
@@ -33,6 +33,21 @@ function encodeEvent(event: StreamEvent) {
   return new TextEncoder().encode(`${JSON.stringify(event)}\n`);
 }
 
+/**
+ * Gemini finish reasons that mean the model declined to answer (safety
+ * filters, blocked terms, and the like) rather than simply running out of
+ * room (MAX_TOKENS) or finishing normally (STOP).
+ */
+const REFUSAL_FINISH_REASONS = new Set([
+  "SAFETY",
+  "RECITATION",
+  "LANGUAGE",
+  "OTHER",
+  "BLOCKLIST",
+  "PROHIBITED_CONTENT",
+  "SPII",
+]);
+
 export async function POST(request: Request) {
   // Every call here spends model tokens, so it's rate limited before anything else.
   const limit = rateLimit(clientKey(request, "chat"), {
@@ -50,11 +65,11 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "Invalid request" }, { status: 400 });
   }
-  if (!hasAnthropicCredentials()) {
+  if (!hasGeminiCredentials()) {
     return Response.json(
       {
         error:
-          "The AI Architect is not configured. Set ANTHROPIC_API_KEY in your environment.",
+          "The AI Architect is not configured. Set GEMINI_API_KEY in your environment.",
       },
       { status: 503 },
     );
@@ -118,87 +133,63 @@ export async function POST(request: Request) {
     }
   }
 
-  // Prior turns as plain text; the new turn may also carry attachments.
-  const history: Anthropic.MessageParam[] = priorMessages.map((m) => ({
-    role: m.role === "USER" ? "user" : "assistant",
-    content: m.content,
+  // Prior turns as Gemini history — "model", not "assistant", is the role
+  // Gemini expects for the AI's own turns.
+  const history: Content[] = priorMessages.map((m) => ({
+    role: m.role === "USER" ? "user" : "model",
+    parts: [{ text: m.content }],
   }));
 
-  const currentContent: Anthropic.ContentBlockParam[] = [];
+  const currentParts: Part[] = [];
   for (const attachment of attachments) {
-    if (attachment.kind === "IMAGE") {
-      currentContent.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: attachment.mimeType as
-            | "image/jpeg"
-            | "image/png"
-            | "image/gif"
-            | "image/webp",
+    if (attachment.kind === "IMAGE" || attachment.mimeType === "application/pdf") {
+      // Gemini reads both images and PDFs natively from inline base64 data —
+      // no client-side text extraction needed either way.
+      currentParts.push({
+        inlineData: {
+          mimeType: attachment.mimeType,
           data: attachment.content,
         },
-      });
-    } else if (attachment.mimeType === "application/pdf") {
-      // Claude reads PDFs natively — no client-side text extraction needed.
-      currentContent.push({
-        type: "document",
-        source: {
-          type: "base64",
-          media_type: "application/pdf",
-          data: attachment.content,
-        },
-        title: attachment.filename,
       });
     } else {
-      currentContent.push({
-        type: "text",
+      currentParts.push({
         text: `<document filename="${attachment.filename}">\n${attachment.content}\n</document>`,
       });
     }
   }
-  currentContent.push({ type: "text", text: message });
+  currentParts.push({ text: message });
 
-  const messages: Anthropic.MessageParam[] = [
-    ...history,
-    { role: "user", content: currentContent },
-  ];
+  const contents: Content[] = [...history, { role: "user", parts: currentParts }];
 
   const stream = new ReadableStream({
     async start(controller) {
       let full = "";
+      let finishReason: string | undefined;
       try {
-        const aiStream = anthropic.messages.stream({
+        const aiStream = await gemini.models.generateContentStream({
           model: MODEL,
-          max_tokens: 4096,
-          system: ARCHITECT_SYSTEM_PROMPT,
-          // Adaptive thinking stays on (the Opus 5 default). `low` effort keeps
-          // a chat turn responsive without disabling thinking outright.
-          output_config: { effort: "low" },
-          messages,
+          contents,
+          config: {
+            systemInstruction: ARCHITECT_SYSTEM_PROMPT,
+            maxOutputTokens: 4096,
+          },
         });
 
-        for await (const event of aiStream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            full += event.delta.text;
-            controller.enqueue(
-              encodeEvent({ type: "text", text: event.delta.text }),
-            );
+        for await (const chunk of aiStream) {
+          const text = chunk.text;
+          if (text) {
+            full += text;
+            controller.enqueue(encodeEvent({ type: "text", text }));
           }
+          const reason = chunk.candidates?.[0]?.finishReason;
+          if (reason) finishReason = reason;
         }
 
-        const finalMessage = await aiStream.finalMessage();
-        if (finalMessage.stop_reason === "refusal") {
+        if (!full && finishReason && REFUSAL_FINISH_REASONS.has(finishReason)) {
           const notice =
             "I can't help with that request. If you think this is a mistake, describe the business problem instead and I'll pick it up from there.";
-          full = full || notice;
-          if (!full.includes(notice)) {
-            controller.enqueue(encodeEvent({ type: "text", text: notice }));
-            full = notice;
-          }
+          controller.enqueue(encodeEvent({ type: "text", text: notice }));
+          full = notice;
         }
 
         const assistantMessage = await prisma.message.create({

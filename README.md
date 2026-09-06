@@ -13,7 +13,7 @@
 <p>
   <img alt="Prisma 7" src="https://img.shields.io/badge/Prisma-7-38bdf8?style=for-the-badge&logo=prisma&logoColor=050508&labelColor=050508" />
   <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-14%2B-0369a1?style=for-the-badge&logo=postgresql&logoColor=ffffff&labelColor=050508" />
-  <img alt="Claude" src="https://img.shields.io/badge/Claude-Anthropic-0ea5e9?style=for-the-badge&logo=anthropic&logoColor=ffffff&labelColor=050508" />
+  <img alt="Gemini" src="https://img.shields.io/badge/Gemini-Google-0ea5e9?style=for-the-badge&logo=googlegemini&logoColor=ffffff&labelColor=050508" />
   <img alt="License: Proprietary" src="https://img.shields.io/badge/License-Proprietary-475569?style=for-the-badge&labelColor=050508" />
 </p>
 
@@ -77,7 +77,7 @@ implied quote.
 
 - Streaming chat over newline-delimited JSON — no SSE library on the client
 - Voice input via a dedicated modal, reachable from anywhere through a floating action button
-- File uploads: PDFs and images handed to Claude natively, text formats stored as extracted text (10 MB cap)
+- File uploads: PDFs and images handed to Gemini natively, text formats stored as extracted text (10 MB cap)
 - Live analysis panel that refreshes after each assistant turn — industry, scale, complexity, clarity score, requirements found vs. target, confirmed and unclear modules, open clarifications, and suggested next replies
 - Per-browser session ownership via an `httpOnly` owner-token cookie, so the "recent sessions" list never leaks across visitors
 
@@ -117,7 +117,7 @@ implied quote.
 | Fonts | Inter + JetBrains Mono, self-hosted through `next/font/google` |
 | Data | PostgreSQL 14+ via Prisma 7.9 — `prisma-client` generator → `src/generated/prisma` |
 | DB driver | `@prisma/adapter-pg` (Prisma 7 connects through a driver adapter, not a bundled engine) |
-| AI | `@anthropic-ai/sdk` 0.116 — `claude-opus-5`, streaming chat + structured outputs |
+| AI | `@google/genai` (Gemini Developer API) — `gemini-2.5-flash`, streaming chat + structured outputs |
 | Validation | Zod 4 on every request body |
 | Language | TypeScript 5, strict |
 | Lint | ESLint 9 with `eslint-config-next` |
@@ -241,7 +241,7 @@ that is committed, and it must never contain a real value.
 | Variable | Required | Purpose | Example / Notes |
 | --- | --- | --- | --- |
 | `DATABASE_URL` | **Yes** | PostgreSQL connection string for Prisma. Read by `src/lib/prisma.ts` and by `prisma.config.ts` for migrations. | `postgresql://user:password@host:5432/softwarepros?schema=public` — the app throws on startup if it is missing. |
-| `ANTHROPIC_API_KEY` | **Yes** in any environment where the AI Discovery Center is used | Credentials for `@anthropic-ai/sdk`. Without it, chat, live analysis, and summary generation all fail. | `sk-ant-…`. The SDK also accepts `ANTHROPIC_AUTH_TOKEN`; `hasAnthropicCredentials()` in `src/lib/ai/client.ts` treats either as configured. |
+| `GEMINI_API_KEY` | **Yes** in any environment where the AI Discovery Center is used | Credentials for `@google/genai` (Gemini Developer API). Without it, chat, live analysis, and summary generation all fail. | Free at https://aistudio.google.com/apikey. The SDK also accepts `GOOGLE_API_KEY`; `hasGeminiCredentials()` in `src/lib/ai/client.ts` treats either as configured. |
 | `ADMIN_USER` | No | HTTP Basic username for `/admin/*` and `/api/admin/*`. | Defaults to `admin` when unset. |
 | `ADMIN_PASSWORD` | **Yes** if you want an admin area at all | HTTP Basic password, compared timing-safely in `src/lib/auth.ts`. | A long random string. **See the fail-closed note below.** |
 | `NEXT_PUBLIC_SITE_URL` | **Yes** in production | The site's canonical public origin, with no trailing slash. | `https://softwarepros.org`. Falls back to `https://softwarepros.org` if unset — which silently produces wrong URLs on any other host. **See the note below.** |
@@ -346,7 +346,7 @@ Add every variable from the [table above](#environment-variables) in Coolify's
 | --- | --- | --- |
 | `NEXT_PUBLIC_SITE_URL` | **Yes — inlined into the bundle** | Yes |
 | `DATABASE_URL` | Yes (migrations run on deploy; also read during any static generation) | **Yes** |
-| `ANTHROPIC_API_KEY` | No | **Yes** |
+| `GEMINI_API_KEY` | No | **Yes** |
 | `ADMIN_USER` | No | Yes |
 | `ADMIN_PASSWORD` | No | **Yes** |
 | `ELEVENLABS_API_KEY` | No | Only if you want voice output |
@@ -399,7 +399,7 @@ Then verify by eye:
 - `/.well-known/security.txt` — `Expires` is roughly a year out and `Canonical` matches your domain
 - `/admin/leads` — prompts for Basic auth, and returns `401` if you cancel
 - Response headers include `Content-Security-Policy`, `Strict-Transport-Security`, and `X-Frame-Options: DENY`
-- Start a discovery session and send one message — this is the only end-to-end check that `ANTHROPIC_API_KEY` and `DATABASE_URL` are both live
+- Start a discovery session and send one message — this is the only end-to-end check that `GEMINI_API_KEY` and `DATABASE_URL` are both live
 
 ---
 
@@ -455,20 +455,21 @@ softwarepros-app/
 
 ## How the AI works
 
-**Chat** (`src/app/api/chat/route.ts`) streams from `client.messages.stream()` and relays
-newline-delimited JSON events (`text` / `analysis` / `done` / `error`), so the client needs no
-SSE library — just a reader and a line split. Adaptive thinking is left on — the Opus 5
-default — at `effort: "low"`, which keeps a chat turn responsive without the failure modes
-that come from disabling thinking outright.
+**Chat** (`src/app/api/chat/route.ts`) streams from `gemini.models.generateContentStream()` and
+relays newline-delimited JSON events (`text` / `analysis` / `done` / `error`), so the client
+needs no SSE library — just a reader and a line split.
 
-**Structured extraction** (`src/lib/ai/analysis.ts`) uses `client.messages.parse()` with
-`zodOutputFormat`, so the live-analysis panel and the project summary are schema-validated
+**Structured extraction** (`src/lib/ai/analysis.ts`) uses `generateContent()` with
+`responseMimeType: "application/json"` and `responseJsonSchema` — a standard JSON Schema
+produced from the Zod schemas via `z.toJSONSchema()` (see `geminiJsonSchema()` in
+`src/lib/ai/client.ts`) — then re-validates the parsed JSON against the same Zod schema before
+it's trusted, so the live-analysis panel and the project summary are schema-checked twice
 rather than parsed out of prose. Schemas live in `src/lib/ai/schemas.ts`; component icons and
 priorities are enums, so the UI can never receive a value it cannot render.
 
-**Attachments** are handed to Claude natively — PDFs as `document` blocks, images as `image`
-blocks — with no client-side text extraction. Text-ish formats (plain text, markdown, CSV,
-JSON, XML, HTML) are stored as extracted text instead.
+**Attachments** are handed to Gemini natively as inline base64 data — PDFs and images both go
+in as `inlineData` parts, with no client-side text extraction. Text-ish formats (plain text,
+markdown, CSV, JSON, XML, HTML) are stored as extracted text instead.
 
 **Analysis extraction is non-fatal by design.** If a structured pass fails, the chat turn
 still completes and the analysis panel keeps its previous values. A degraded sidebar is a far

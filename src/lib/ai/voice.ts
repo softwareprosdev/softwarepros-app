@@ -3,7 +3,7 @@ import "server-only";
 /**
  * ElevenLabs text-to-speech.
  *
- * Claude stays the brain — the architect prompt, the guardrails, the live
+ * Gemini stays the brain — the architect prompt, the guardrails, the live
  * analysis and the summary pipeline are untouched. This only gives the
  * architect a voice worth listening to, because the browser's built-in
  * speech synthesis is not one.
