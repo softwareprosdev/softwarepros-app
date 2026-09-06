@@ -1,8 +1,6 @@
-"use client";
-
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Icon } from "@/components/Icon";
-import { useVoiceModal } from "@/components/VoiceModalProvider";
+import { ORG_PHONE_E164 } from "@/lib/org";
 
 type EngagementCard = {
   id: "speak" | "type" | "upload" | "schedule";
@@ -10,6 +8,7 @@ type EngagementCard = {
   title: string;
   body: string;
   cta: string;
+  href: string;
   featured?: boolean;
 };
 
@@ -18,22 +17,25 @@ const CARDS: EngagementCard[] = [
     id: "speak",
     icon: "microphone",
     title: "Speak",
-    body: "Describe your project verbally to our AI architect.",
-    cta: "Start Voice Call",
+    body: "Prefer to talk it through? Call us directly.",
+    cta: "Call Us",
+    href: `tel:${ORG_PHONE_E164}`,
   },
   {
     id: "type",
     icon: "keyboard",
     title: "Type",
-    body: "Chat in real-time with detailed requirements.",
-    cta: "Open Chat",
+    body: "Describe your project in writing and an engineer follows up.",
+    cta: "Start a Project",
+    href: "/discovery",
   },
   {
     id: "upload",
     icon: "file-arrow-up",
     title: "Upload",
     body: "Share documents and designs for review.",
-    cta: "Upload Files",
+    cta: "Get Started",
+    href: "/discovery",
     featured: true,
   },
   {
@@ -42,20 +44,11 @@ const CARDS: EngagementCard[] = [
     title: "Schedule",
     body: "Book a discovery call with our team.",
     cta: "Book Meeting",
+    href: "/contact?intent=schedule",
   },
 ];
 
 export function EngagementCards() {
-  const router = useRouter();
-  const { open } = useVoiceModal();
-
-  function activate(id: EngagementCard["id"]) {
-    if (id === "speak") return open();
-    if (id === "type") return router.push("/discovery");
-    if (id === "upload") return router.push("/discovery?mode=upload");
-    return router.push("/contact?intent=schedule");
-  }
-
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {CARDS.map((card) => (
@@ -68,13 +61,12 @@ export function EngagementCards() {
           <Icon name={card.icon} className="text-3xl text-primary mb-6" />
           <h3 className="text-2xl font-bold mb-4">{card.title}</h3>
           <p className="text-gray-400 text-sm mb-8">{card.body}</p>
-          <button
-            type="button"
-            onClick={() => activate(card.id)}
-            className="mt-auto w-full py-4 border border-white/20 rounded-full font-semibold hover:bg-white hover:text-black transition-all"
+          <Link
+            href={card.href}
+            className="mt-auto w-full py-4 border border-white/20 rounded-full font-semibold hover:bg-white hover:text-black transition-all text-center"
           >
             {card.cta}
-          </button>
+          </Link>
         </div>
       ))}
     </div>

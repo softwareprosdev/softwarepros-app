@@ -254,7 +254,7 @@ model Lead {
   phone     String?
   timeline  String?
   message   String? @db.Text
-  /// Where the lead came from: "summary", "contact", "assessment", "schedule".
+  /// Where the lead came from: "summary", "contact", "assessment", "schedule", "discovery".
   source    String  @default("contact")
   status    LeadStatus @default(NEW)
 

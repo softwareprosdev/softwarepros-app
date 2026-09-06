@@ -4,9 +4,14 @@ import Link from "next/link";
 import { useId, useState } from "react";
 import { Icon } from "@/components/Icon";
 
-export type LeadSource = "summary" | "contact" | "assessment" | "schedule";
+export type LeadSource =
+  | "summary"
+  | "contact"
+  | "assessment"
+  | "schedule"
+  | "discovery";
 
-const TIMELINES = [
+export const TIMELINES = [
   "Not sure yet",
   "Immediately",
   "1–3 months",
@@ -16,10 +21,12 @@ const TIMELINES = [
 
 type Status = "idle" | "sending" | "done" | "error";
 
-const FIELD =
+export const FORM_FIELD_CLASS =
   "w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-600 outline-none focus:border-primary/60 transition-colors";
-const LABEL =
+export const FORM_LABEL_CLASS =
   "block text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2";
+const FIELD = FORM_FIELD_CLASS;
+const LABEL = FORM_LABEL_CLASS;
 
 export function ContactForm({
   source,

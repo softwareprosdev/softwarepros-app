@@ -35,21 +35,21 @@ export const metadata: Metadata = pageMetadata({
 
 const DISCOVERY_PANELS = [
   {
-    kicker: "AI Conversation",
+    kicker: "Project Intake",
     title: "Project Scoping",
     icon: "comments",
     features: [
-      { icon: "microphone", title: "Voice Input", body: "Describe your project verbally" },
-      { icon: "keyboard", title: "Text Input", body: "Type detailed requirements" },
+      { icon: "keyboard", title: "Describe In Writing", body: "Tell us what you need, in your own words" },
+      { icon: "headset", title: "Direct Follow-Up", body: "An engineer replies, not a sales queue" },
     ],
   },
   {
-    kicker: "Document Analysis",
+    kicker: "Project Details",
     title: "Upload Review",
     icon: "file-arrow-up",
     features: [
-      { icon: "file-arrow-up", title: "Upload Documents", body: "Share specs and briefs" },
-      { icon: "image", title: "Image Upload", body: "Paste screenshots and designs" },
+      { icon: "file-arrow-up", title: "Mention Your Documents", body: "Note specs or designs you already have" },
+      { icon: "envelope", title: "Email Attachments", body: "Send files straight to our team" },
     ],
   },
 ];

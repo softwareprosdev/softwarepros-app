@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { NAV_LINKS } from "@/lib/content";
 import { Icon } from "@/components/Icon";
-import { useVoiceModal } from "@/components/VoiceModalProvider";
 
 export function Wordmark({ className = "text-xl" }: { className?: string }) {
   return (
@@ -26,7 +25,6 @@ export function SiteNav({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const { open: openVoice } = useVoiceModal();
   const isSecurity = variant === "security";
 
   return (
@@ -81,16 +79,6 @@ export function SiteNav({
         >
           Start A Project
         </Link>
-        {!isSecurity && (
-          <button
-            type="button"
-            onClick={openVoice}
-            className="hidden sm:flex items-center gap-2 px-4 py-2.5 border border-white/15 rounded-full text-xs font-medium text-gray-300 hover:text-white hover:border-white/30 transition-all"
-          >
-            <Icon name="microphone-lines" className="text-cyan-400" />
-            <span>Talk to AI</span>
-          </button>
-        )}
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
