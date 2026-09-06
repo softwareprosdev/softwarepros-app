@@ -5,6 +5,7 @@ import { JsonLd } from "@/components/JsonLd";
 import { pageSchema } from "@/lib/schema";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
+import { ORG_EMAIL } from "@/lib/org";
 
 export const metadata: Metadata = pageMetadata({
   path: "/legal/terms",
@@ -102,7 +103,7 @@ export default function TermsPage() {
 
             <p className="text-sm text-gray-600 mt-16">
               Questions? <Link href="/contact" className="underline hover:text-gray-400">Contact us</Link> or email
-              hello@softwarepros.org. See also our{" "}
+              {" "}{ORG_EMAIL}. See also our{" "}
               <Link href="/legal/privacy" className="underline hover:text-gray-400">
                 privacy policy
               </Link>

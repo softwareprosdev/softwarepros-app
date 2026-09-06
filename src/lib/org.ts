@@ -11,7 +11,7 @@ import { SITE_URL } from "@/lib/site";
 
 export const ORG_NAME = "SoftwarePros";
 export const ORG_LEGAL_NAME = "SoftwarePros.org";
-export const ORG_EMAIL = "hello@softwarepros.org";
+export const ORG_EMAIL = "info@softwarepros.org";
 
 /**
  * Name, address, phone — the "NAP" triple local search ranks on.
