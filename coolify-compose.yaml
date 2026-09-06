@@ -20,7 +20,8 @@
 #   - The domain on the `app` service, written with the container port:
 #     https://your-domain.com:3000  (the :3000 tells Coolify where to route;
 #     it is not part of the public URL)
-#   - Environment variables: DATABASE_URL, DIRECT_URL, ANTHROPIC_API_KEY,
+#   - Environment variables: DATABASE_URL, DIRECT_URL, one of REQUESTY_API_KEY
+#     or ANTHROPIC_API_KEY (see .env.example),
 #     ADMIN_USER, ADMIN_PASSWORD, NEXT_PUBLIC_SITE_URL, NEXT_PUBLIC_SUPABASE_URL,
 #     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, STRIPE_SECRET_KEY,
 #     STRIPE_WEBHOOK_SECRET (and the ELEVENLABS_* trio for voice).
@@ -69,7 +70,11 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       DIRECT_URL: ${DIRECT_URL}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # One of these two is required — Requesty wins when both are set.
+      REQUESTY_API_KEY: ${REQUESTY_API_KEY:-}
+      REQUESTY_BASE_URL: ${REQUESTY_BASE_URL:-}
+      REQUESTY_MODEL: ${REQUESTY_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}

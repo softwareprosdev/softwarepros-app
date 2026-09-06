@@ -2,7 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { generateSummary } from "@/lib/ai/analysis";
 import { estimateProjectCost } from "@/lib/ai/estimate";
-import { hasAnthropicCredentials } from "@/lib/ai/client";
+import { hasAiCredentials } from "@/lib/ai/client";
 import { publicId } from "@/lib/ids";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { getCurrentUser } from "@/lib/session-user";
@@ -28,9 +28,12 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "Invalid request" }, { status: 400 });
   }
-  if (!hasAnthropicCredentials()) {
+  if (!hasAiCredentials()) {
     return Response.json(
-      { error: "The AI Architect is not configured (ANTHROPIC_API_KEY)." },
+      {
+        error:
+          "The AI Architect is not configured (REQUESTY_API_KEY or ANTHROPIC_API_KEY).",
+      },
       { status: 503 },
     );
   }

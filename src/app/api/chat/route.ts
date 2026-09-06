@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic, MODEL, hasAnthropicCredentials } from "@/lib/ai/client";
+import { anthropic, MODEL, hasAiCredentials } from "@/lib/ai/client";
 import { ARCHITECT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { extractAnalysis } from "@/lib/ai/analysis";
 import { prisma } from "@/lib/prisma";
@@ -50,11 +50,11 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "Invalid request" }, { status: 400 });
   }
-  if (!hasAnthropicCredentials()) {
+  if (!hasAiCredentials()) {
     return Response.json(
       {
         error:
-          "The AI Architect is not configured. Set ANTHROPIC_API_KEY in your environment.",
+          "The AI Architect is not configured. Set REQUESTY_API_KEY (or ANTHROPIC_API_KEY) in your environment.",
       },
       { status: 503 },
     );

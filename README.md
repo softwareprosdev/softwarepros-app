@@ -241,7 +241,10 @@ that is committed, and it must never contain a real value.
 | Variable | Required | Purpose | Example / Notes |
 | --- | --- | --- | --- |
 | `DATABASE_URL` | **Yes** | PostgreSQL connection string for Prisma. Read by `src/lib/prisma.ts` and by `prisma.config.ts` for migrations. | `postgresql://user:password@host:5432/softwarepros?schema=public` — the app throws on startup if it is missing. |
-| `ANTHROPIC_API_KEY` | **Yes** in any environment where the AI Discovery Center is used | Credentials for `@anthropic-ai/sdk`. Without it, chat, live analysis, and summary generation all fail. | `sk-ant-…`. The SDK also accepts `ANTHROPIC_AUTH_TOKEN`; `hasAnthropicCredentials()` in `src/lib/ai/client.ts` treats either as configured. |
+| `REQUESTY_API_KEY` | One of this or `ANTHROPIC_API_KEY` in any environment where the AI Discovery Center is used | Routes every AI Architect call through [Requesty](https://requesty.ai), an Anthropic-compatible gateway, instead of calling Anthropic directly. Set it and `src/lib/ai/client.ts` points the SDK at Requesty's base URL with this key; leave it empty and nothing changes. | Requesty dashboard → API Keys. Takes precedence over `ANTHROPIC_API_KEY` when both are set. |
+| `REQUESTY_BASE_URL` | No | Overrides the gateway origin. | Defaults to `https://router.requesty.ai`. Use `https://router.eu.requesty.ai` for EU data residency. Ignored unless `REQUESTY_API_KEY` is set. |
+| `REQUESTY_MODEL` | No | The exact model id sent to the gateway. | Defaults to `anthropic/claude-haiku-5` — Requesty addresses models as `provider/model`, not by the bare Anthropic id. Pin a different id here (e.g. `anthropic/claude-sonnet-5`) if the default stops resolving. Ignored unless `REQUESTY_API_KEY` is set. |
+| `ANTHROPIC_API_KEY` | One of this or `REQUESTY_API_KEY` in any environment where the AI Discovery Center is used | Credentials for `@anthropic-ai/sdk` on the direct route. Without either key, chat, live analysis, and summary generation all fail. | `sk-ant-…`. The SDK also accepts `ANTHROPIC_AUTH_TOKEN`; `hasAiCredentials()` in `src/lib/ai/client.ts` treats either as configured. |
 | `ADMIN_USER` | No | HTTP Basic username for `/admin/*` and `/api/admin/*`. | Defaults to `admin` when unset. |
 | `ADMIN_PASSWORD` | **Yes** if you want an admin area at all | HTTP Basic password, compared timing-safely in `src/lib/auth.ts`. | A long random string. **See the fail-closed note below.** |
 | `NEXT_PUBLIC_SITE_URL` | **Yes** in production | The site's canonical public origin, with no trailing slash. | `https://softwarepros.org`. Falls back to `https://softwarepros.org` if unset — which silently produces wrong URLs on any other host. **See the note below.** |
@@ -346,7 +349,10 @@ Add every variable from the [table above](#environment-variables) in Coolify's
 | --- | --- | --- |
 | `NEXT_PUBLIC_SITE_URL` | **Yes — inlined into the bundle** | Yes |
 | `DATABASE_URL` | Yes (migrations run on deploy; also read during any static generation) | **Yes** |
-| `ANTHROPIC_API_KEY` | No | **Yes** |
+| `REQUESTY_API_KEY` | No | **Yes**, unless `ANTHROPIC_API_KEY` is used instead |
+| `REQUESTY_BASE_URL` | No | Optional |
+| `REQUESTY_MODEL` | No | Optional |
+| `ANTHROPIC_API_KEY` | No | **Yes**, unless `REQUESTY_API_KEY` is used instead |
 | `ADMIN_USER` | No | Yes |
 | `ADMIN_PASSWORD` | No | **Yes** |
 | `ELEVENLABS_API_KEY` | No | Only if you want voice output |
@@ -399,7 +405,7 @@ Then verify by eye:
 - `/.well-known/security.txt` — `Expires` is roughly a year out and `Canonical` matches your domain
 - `/admin/leads` — prompts for Basic auth, and returns `401` if you cancel
 - Response headers include `Content-Security-Policy`, `Strict-Transport-Security`, and `X-Frame-Options: DENY`
-- Start a discovery session and send one message — this is the only end-to-end check that `ANTHROPIC_API_KEY` and `DATABASE_URL` are both live
+- Start a discovery session and send one message — this is the only end-to-end check that the AI key (`REQUESTY_API_KEY` or `ANTHROPIC_API_KEY`) and `DATABASE_URL` are both live
 
 ---
 
