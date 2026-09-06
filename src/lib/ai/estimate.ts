@@ -1,6 +1,6 @@
 import "server-only";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { anthropic, ESTIMATE_MODEL } from "@/lib/ai/client";
+import { anthropic, MODEL } from "@/lib/ai/client";
 import { EstimateSchema, type Estimate, type Summary } from "@/lib/ai/schemas";
 
 /**
@@ -26,7 +26,7 @@ Rules:
 /** Drafts a cost-estimate range from an already-generated project summary. */
 export async function estimateProjectCost(summary: Summary): Promise<Estimate> {
   const response = await anthropic.messages.parse({
-    model: ESTIMATE_MODEL,
+    model: MODEL,
     max_tokens: 1024,
     system: ESTIMATE_SYSTEM_PROMPT,
     output_config: { format: zodOutputFormat(EstimateSchema) },

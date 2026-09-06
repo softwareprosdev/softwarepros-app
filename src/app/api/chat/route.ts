@@ -172,8 +172,8 @@ export async function POST(request: Request) {
           model: MODEL,
           max_tokens: 4096,
           system: ARCHITECT_SYSTEM_PROMPT,
-          // Adaptive thinking stays on (the Opus 5 default). `low` effort keeps
-          // a chat turn responsive without disabling thinking outright.
+          // Adaptive thinking stays on. `low` effort keeps a chat turn
+          // responsive on Haiku without disabling thinking outright.
           output_config: { effort: "low" },
           messages,
         });

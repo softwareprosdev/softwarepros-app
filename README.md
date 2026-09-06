@@ -117,7 +117,7 @@ implied quote.
 | Fonts | Inter + JetBrains Mono, self-hosted through `next/font/google` |
 | Data | PostgreSQL 14+ via Prisma 7.9 — `prisma-client` generator → `src/generated/prisma` |
 | DB driver | `@prisma/adapter-pg` (Prisma 7 connects through a driver adapter, not a bundled engine) |
-| AI | `@anthropic-ai/sdk` 0.116 — `claude-opus-5`, streaming chat + structured outputs |
+| AI | `@anthropic-ai/sdk` 0.116 — `claude-haiku-5`, streaming chat + structured outputs |
 | Validation | Zod 4 on every request body |
 | Language | TypeScript 5, strict |
 | Lint | ESLint 9 with `eslint-config-next` |
@@ -457,9 +457,9 @@ softwarepros-app/
 
 **Chat** (`src/app/api/chat/route.ts`) streams from `client.messages.stream()` and relays
 newline-delimited JSON events (`text` / `analysis` / `done` / `error`), so the client needs no
-SSE library — just a reader and a line split. Adaptive thinking is left on — the Opus 5
-default — at `effort: "low"`, which keeps a chat turn responsive without the failure modes
-that come from disabling thinking outright.
+SSE library — just a reader and a line split. Adaptive thinking is left on at `effort: "low"`,
+which keeps a chat turn responsive on Haiku without the failure modes that come from disabling
+thinking outright.
 
 **Structured extraction** (`src/lib/ai/analysis.ts`) uses `client.messages.parse()` with
 `zodOutputFormat`, so the live-analysis panel and the project summary are schema-validated
