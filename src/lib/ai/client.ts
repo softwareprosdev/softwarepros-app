@@ -6,7 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
  * runs on every chat turn and the budget for this feature favors a cheap,
  * fast model over the strongest one.
  */
-const ANTHROPIC_MODEL = "claude-haiku-5";
+const ANTHROPIC_MODEL = "claude-haiku-4-5";
 
 /**
  * Requesty (https://requesty.ai) is an Anthropic-compatible gateway: same
@@ -18,7 +18,7 @@ const REQUESTY_BASE_URL = "https://router.requesty.ai";
 
 /**
  * Requesty addresses models as `provider/model`, not by the bare Anthropic id,
- * so the id has to change with the route — passing `claude-haiku-5` to the
+ * so the id has to change with the route — passing the bare id to the
  * gateway is a 404 on a model that plainly exists.
  */
 const REQUESTY_MODEL_PREFIX = "anthropic/";
