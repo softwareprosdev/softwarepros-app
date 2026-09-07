@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useId, useState } from "react";
 import { Icon } from "@/components/Icon";
 
-export type LeadSource = "summary" | "contact" | "assessment" | "schedule";
+export type LeadSource =
+  | "summary"
+  | "contact"
+  | "assessment"
+  | "schedule"
+  | "landing";
 
 const TIMELINES = [
   "Not sure yet",

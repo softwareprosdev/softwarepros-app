@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { sendLeadNotificationEmail } from "@/lib/email";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { readJson } from "@/lib/read-json";
 
@@ -10,7 +11,9 @@ const LeadRequest = z.object({
   phone: z.string().trim().max(50).optional().or(z.literal("")),
   timeline: z.string().trim().max(100).optional().or(z.literal("")),
   message: z.string().trim().max(5_000).optional().or(z.literal("")),
-  source: z.enum(["summary", "contact", "assessment", "schedule"]).default("contact"),
+  source: z
+    .enum(["summary", "contact", "assessment", "schedule", "landing"])
+    .default("contact"),
   sessionId: z.string().optional(),
   summaryId: z.string().optional(),
   // Honeypot: real users never fill this in.
@@ -70,6 +73,22 @@ export async function POST(request: Request) {
       summaryId: summary?.id ?? null,
     },
   });
+
+  // Best-effort: the lead is already durably saved above, so a Resend outage
+  // or a missing API key must never turn into a failed submission for the
+  // visitor. /admin/leads stays the source of truth either way.
+  const notification = await sendLeadNotificationEmail({
+    name: data.name,
+    email: data.email,
+    company: data.company,
+    phone: data.phone,
+    timeline: data.timeline,
+    message: data.message,
+    source: data.source,
+  });
+  if (!notification.ok) {
+    console.error("Lead notification email failed:", notification.error);
+  }
 
   return Response.json({ ok: true }, { status: 201 });
 }
