@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # None of these are real credentials. `next build` needs DATABASE_URL to
+    # be a well-formed connection string (src/lib/prisma.ts constructs a
+    # client at module load) but never queries it at build time — no route in
+    # this app is statically prerendered against the database — so a
+    # reachable Postgres instance isn't needed here. The Supabase and admin
+    # values are read the same way: present, syntactically valid, never
+    # dialed during typecheck/lint/build.
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+      DIRECT_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+      NEXT_PUBLIC_SITE_URL: https://ci.softwarepros.org
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: ci-only-placeholder
+      NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-key
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Next.js route types
+        run: npm run typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
