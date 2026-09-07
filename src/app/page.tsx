@@ -6,8 +6,8 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { FloatingAIButton } from "@/components/FloatingAIButton";
 import { ParticleField } from "@/components/ParticleField";
 import { Icon } from "@/components/Icon";
-import { HeroOrb } from "@/components/home/HeroOrb";
 import { EngagementCards } from "@/components/home/EngagementCards";
+import { ContactForm } from "@/components/contact/ContactForm";
 import { JsonLd } from "@/components/JsonLd";
 import { AnswerBlock } from "@/components/seo/AnswerBlock";
 import { FaqSection } from "@/components/seo/FaqSection";
@@ -136,29 +136,22 @@ export default function HomePage() {
               <h1 className="text-5xl md:text-7xl font-bold leading-tight mb-8 max-w-2xl">
                 Build Software That Doesn&apos;t Break.
               </h1>
-              <p className="text-xl text-gray-400 mb-12 max-w-lg">
+              <p className="text-xl text-gray-400 mb-8 max-w-lg">
                 AI. Software Engineering. Cybersecurity. Cloud Infrastructure. We
                 engineer intelligent technology systems for organizations ready
                 to replace complexity with automation, security, and scale.
               </p>
-              <div className="flex flex-wrap gap-4">
-                <Link
-                  href="/discovery"
-                  className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full font-semibold hover:opacity-90 transition-opacity"
-                >
-                  Start Your Project
-                </Link>
-                <Link
-                  href="/discovery"
-                  className="px-8 py-4 glass-card rounded-full font-semibold hover:bg-white/10 transition-colors"
-                >
-                  Talk To An AI Architect
-                </Link>
-              </div>
+              <Link
+                href="/discovery"
+                className="inline-flex items-center gap-2 text-sm font-semibold text-gray-400 hover:text-white transition-colors mb-12"
+              >
+                Prefer to talk it through first? Chat with our AI Architect
+                <Icon name="arrow-right" />
+              </Link>
 
               <AnswerBlock
                 question="What is SoftwarePros?"
-                className="mt-14 mb-12 lg:mb-0"
+                className="mb-12 lg:mb-0"
               >
                 SoftwarePros is a software engineering firm that designs and
                 builds custom technology systems across four practice areas —
@@ -169,8 +162,21 @@ export default function HomePage() {
               </AnswerBlock>
             </div>
 
-            <div className="lg:w-2/5 flex items-center justify-center py-20 lg:py-0">
-              <HeroOrb />
+            <div className="lg:w-2/5 flex items-center py-20 lg:py-0">
+              <div className="glass-card rounded-3xl p-8 w-full">
+                <h2 className="text-xl font-bold mb-1">
+                  Tell us what you&apos;re building.
+                </h2>
+                <p className="text-sm text-gray-400 mb-6">
+                  An engineer — not a sales rep — reads every submission.
+                </p>
+                <ContactForm
+                  source="landing"
+                  submitLabel="Get In Touch"
+                  messageLabel="Project details"
+                  messagePlaceholder="What are you building, what's broken, or what you need to decide."
+                />
+              </div>
             </div>
           </div>
         </section>

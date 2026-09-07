@@ -89,7 +89,8 @@ implied quote.
 
 **Lead capture and admin**
 
-- Lead forms on the contact page, the summary page, and inline CTAs; the contact page adapts to `?intent=assessment|schedule|project`
+- Lead forms on the homepage hero, the contact page, the summary page, and inline CTAs; the contact page adapts to `?intent=assessment|schedule|project`
+- Every submission notifies `info@softwarepros.org` by email (Resend, best-effort — the database write is the source of truth, the email is a convenience)
 - Honeypot field — hits are accepted and silently dropped
 - Idempotent newsletter subscription
 - `/admin/leads` behind HTTP Basic auth with a timing-safe comparison, `noindex`, enforced in both the proxy and each route handler
@@ -130,7 +131,7 @@ implied quote.
 
 | Route | What it is |
 | --- | --- |
-| `/` | Homepage — hero, 20 disciplines, pipeline, security, 15 industries, engagement |
+| `/` | Homepage — hero with an embedded lead form, 20 disciplines, pipeline, security, 15 industries, engagement |
 | `/solutions` | All 20 engineering disciplines grouped by category |
 | `/solutions/cybersecurity` | Cybersecurity deep-dive — live SOC dashboard, case studies, compliance |
 | `/industries` | The 15 industries served |
@@ -250,6 +251,8 @@ that is committed, and it must never contain a real value.
 | `ADMIN_USER` | No | HTTP Basic username for `/admin/*` and `/api/admin/*`. | Defaults to `admin` when unset. |
 | `ADMIN_PASSWORD` | **Yes** if you want an admin area at all | HTTP Basic password, compared timing-safely in `src/lib/auth.ts`. | A long random string. **See the fail-closed note below.** |
 | `NEXT_PUBLIC_SITE_URL` | **Yes** in production | The site's canonical public origin, with no trailing slash. | `https://softwarepros.org`. Falls back to `https://softwarepros.org` if unset — which silently produces wrong URLs on any other host. **See the note below.** |
+| `RESEND_API_KEY` | No | Emails `info@softwarepros.org` on every lead form submission (`src/lib/email.ts`, called from `/api/leads`). | Resend dashboard → API Keys. Leave empty and this stays inert — the lead still saves to the database and shows up in `/admin/leads`. |
+| `RESEND_FROM_EMAIL` | No | The `from` address on lead notification emails. | Defaults to Resend's shared `onboarding@resend.dev`. Set to an address on a domain verified in Resend (e.g. `"SoftwarePros <leads@softwarepros.org>"`) once one exists — Resend rejects unverified `from` domains. |
 | `ELEVENLABS_API_KEY` | No | Both halves of the voice loop: speech-to-text for dictation (`src/lib/ai/transcribe.ts`, `/api/transcribe`) and text-to-speech for the replies (`src/lib/ai/voice.ts`, `/api/speech`). One key covers both. | Leave empty and both stay inert — the conversation continues by typing, nothing throws. **See the note below.** |
 | `ELEVENLABS_VOICE_ID` | No | Which voice to speak in. | Defaults to `21m00Tcm4TlvDq8ikWAM` (Rachel, a stock voice) so voice works the moment a key is present. |
 | `ELEVENLABS_MODEL_ID` | No | Which synthesis model to use. | Defaults to `eleven_flash_v2_5` — the low-latency model, chosen because time-to-first-sound matters more than fidelity in conversation. |
@@ -357,6 +360,8 @@ Add every variable from the [table above](#environment-variables) in Coolify's
 | `ANTHROPIC_API_KEY` | No | **Yes**, unless `REQUESTY_API_KEY` is used instead |
 | `ADMIN_USER` | No | Yes |
 | `ADMIN_PASSWORD` | No | **Yes** |
+| `RESEND_API_KEY` | No | Only if you want lead notification emails |
+| `RESEND_FROM_EMAIL` | No | Optional |
 | `ELEVENLABS_API_KEY` | No | Only if you want voice output |
 | `ELEVENLABS_VOICE_ID` | No | Optional |
 | `ELEVENLABS_MODEL_ID` | No | Optional |
