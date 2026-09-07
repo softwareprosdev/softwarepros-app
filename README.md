@@ -118,7 +118,7 @@ implied quote.
 | Fonts | Inter + JetBrains Mono, self-hosted through `next/font/google` |
 | Data | PostgreSQL 14+ via Prisma 7.9 — `prisma-client` generator → `src/generated/prisma` |
 | DB driver | `@prisma/adapter-pg` (Prisma 7 connects through a driver adapter, not a bundled engine) |
-| AI | `@anthropic-ai/sdk` 0.116 — `claude-haiku-5`, streaming chat + structured outputs |
+| AI | `@anthropic-ai/sdk` 0.116 — `claude-haiku-4-5`, streaming chat + structured outputs |
 | Validation | Zod 4 on every request body |
 | Language | TypeScript 5, strict |
 | Lint | ESLint 9 with `eslint-config-next` |
@@ -246,7 +246,7 @@ that is committed, and it must never contain a real value.
 | `DATABASE_URL` | **Yes** | PostgreSQL connection string for Prisma. Read by `src/lib/prisma.ts` and by `prisma.config.ts` for migrations. | `postgresql://user:password@host:5432/softwarepros?schema=public` — the app throws on startup if it is missing. |
 | `REQUESTY_API_KEY` | One of this or `ANTHROPIC_API_KEY` in any environment where the AI Discovery Center is used | Routes every AI Architect call through [Requesty](https://requesty.ai), an Anthropic-compatible gateway, instead of calling Anthropic directly. Set it and `src/lib/ai/client.ts` points the SDK at Requesty's base URL with this key; leave it empty and nothing changes. | Requesty dashboard → API Keys. Takes precedence over `ANTHROPIC_API_KEY` when both are set. |
 | `REQUESTY_BASE_URL` | No | Overrides the gateway origin. | Defaults to `https://router.requesty.ai`. Use `https://router.eu.requesty.ai` for EU data residency. Ignored unless `REQUESTY_API_KEY` is set. |
-| `REQUESTY_MODEL` | No | The exact model id sent to the gateway. | Defaults to `anthropic/claude-haiku-5` — Requesty addresses models as `provider/model`, not by the bare Anthropic id. Pin a different id here (e.g. `anthropic/claude-sonnet-5`) if the default stops resolving. Ignored unless `REQUESTY_API_KEY` is set. |
+| `REQUESTY_MODEL` | No | The exact model id sent to the gateway. | Defaults to `anthropic/claude-haiku-4-5` — Requesty addresses models as `provider/model`, not by the bare Anthropic id. Pin a different id here (e.g. `anthropic/claude-sonnet-5`) if the default stops resolving. Ignored unless `REQUESTY_API_KEY` is set. |
 | `ANTHROPIC_API_KEY` | One of this or `REQUESTY_API_KEY` in any environment where the AI Discovery Center is used | Credentials for `@anthropic-ai/sdk` on the direct route. Without either key, chat, live analysis, and summary generation all fail. | `sk-ant-…`. The SDK also accepts `ANTHROPIC_AUTH_TOKEN`; `hasAiCredentials()` in `src/lib/ai/client.ts` treats either as configured. |
 | `ADMIN_USER` | No | HTTP Basic username for `/admin/*` and `/api/admin/*`. | Defaults to `admin` when unset. |
 | `ADMIN_PASSWORD` | **Yes** if you want an admin area at all | HTTP Basic password, compared timing-safely in `src/lib/auth.ts`. | A long random string. **See the fail-closed note below.** |
